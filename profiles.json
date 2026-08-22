@@ -1,0 +1,23 @@
+{
+  "default_profile": "default",
+  "profiles": [
+    {
+      "id": "default",
+      "name": "默认 GPT Image 接口",
+      "provider": "openai-compatible",
+      "endpoint": "",
+      "model": "gpt-image-2",
+      "api_key_env": "GPT_IMAGE_API_KEY",
+      "agent_endpoint": ""
+    },
+    {
+      "id": "aiwanwu",
+      "name": "爱万物兼容接口",
+      "provider": "openai-compatible",
+      "endpoint": "https://2api.aiwanwu.cc/v1/images/generations",
+      "model": "gpt-image-2",
+      "api_key_env": "GPT_IMAGE_API_KEY",
+      "agent_endpoint": ""
+    }
+  ]
+}

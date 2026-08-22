@@ -1,0 +1,47 @@
+{
+  "default_profile": "custom-async-profile",
+  "customProviders": [
+    {
+      "id": "custom-async",
+      "name": "自定义异步图片接口",
+      "submit": {
+        "path": "images/generations",
+        "method": "POST",
+        "contentType": "json",
+        "body": {
+          "model": "$profile.model",
+          "prompt": "$prompt",
+          "size": "$params.size",
+          "n": "$params.n",
+          "image_urls": "$inputImages.dataUrls"
+        },
+        "taskIdPath": "data.task_id",
+        "result": {"imageUrlPaths": [], "b64JsonPaths": []}
+      },
+      "poll": {
+        "path": "tasks/{task_id}",
+        "method": "GET",
+        "intervalSeconds": 5,
+        "statusPath": "data.status",
+        "successValues": ["completed", "success"],
+        "failureValues": ["failed", "cancelled"],
+        "errorPath": "data.error.message",
+        "result": {
+          "imageUrlPaths": ["data.result.images.*.url"],
+          "b64JsonPaths": ["data.result.images.*.b64_json"]
+        }
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "id": "custom-async-profile",
+      "name": "自定义异步接口",
+      "provider": "custom-async",
+      "baseUrl": "https://api.example.com/",
+      "model": "gpt-image-2",
+      "apiMode": "images",
+      "api_key_env": "CUSTOM_IMAGE_API_KEY"
+    }
+  ]
+}

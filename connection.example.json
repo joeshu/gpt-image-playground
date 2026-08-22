@@ -1,0 +1,5 @@
+{
+  "endpoint": "https://api.example.com/v1/images/generations",
+  "api_key": "在首次配置时填写，不要把真实 Key 提交到代码仓库",
+  "model": "gpt-image-2"
+}

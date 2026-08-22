@@ -1,0 +1,23 @@
+# Local development and generated state
+connection.json
+*.bak
+*.tmp
+*.log
+*.pid
+__pycache__/
+*.pyc
+
+# Generated image and workspace artifacts
+/attachments/
+/outputs/
+/history.jsonl
+/agent-history.jsonl
+/api/
+
+# Local test exports
+profiles.export.test.json
+
+# Secrets and environment files
+.env
+.env.*
+*.secret

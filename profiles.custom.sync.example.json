@@ -1,0 +1,59 @@
+{
+  "default_profile": "custom-sync-profile",
+  "customProviders": [
+    {
+      "id": "custom-sync",
+      "name": "自定义同步图片接口",
+      "submit": {
+        "path": "images/generations",
+        "method": "POST",
+        "contentType": "json",
+        "body": {
+          "model": "$profile.model",
+          "prompt": "$prompt",
+          "size": "$params.size",
+          "quality": "$params.quality",
+          "output_format": "$params.output_format",
+          "n": "$params.n",
+          "image_urls": "$inputImages.dataUrls"
+        },
+        "result": {
+          "imageUrlPaths": ["data.*.url"],
+          "b64JsonPaths": ["data.*.b64_json"]
+        }
+      },
+      "editSubmit": {
+        "path": "images/edits",
+        "method": "POST",
+        "contentType": "multipart",
+        "body": {
+          "model": "$profile.model",
+          "prompt": "$prompt",
+          "size": "$params.size",
+          "quality": "$params.quality",
+          "output_format": "$params.output_format",
+          "n": "$params.n"
+        },
+        "files": [
+          {"field": "image[]", "source": "inputImages", "array": true},
+          {"field": "mask", "source": "mask"}
+        ],
+        "result": {
+          "imageUrlPaths": ["data.*.url"],
+          "b64JsonPaths": ["data.*.b64_json"]
+        }
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "id": "custom-sync-profile",
+      "name": "自定义同步接口",
+      "provider": "custom-sync",
+      "baseUrl": "https://api.example.com/",
+      "model": "gpt-image-2",
+      "apiMode": "images",
+      "api_key_env": "CUSTOM_IMAGE_API_KEY"
+    }
+  ]
+}

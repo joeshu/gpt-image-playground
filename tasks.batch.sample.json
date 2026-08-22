@@ -1,0 +1,19 @@
+{
+  "size": "1:1",
+  "quality": "low",
+  "output_format": "png",
+  "tasks": [
+    {
+      "prompt": "红色背景的高级产品图",
+      "style": "product"
+    },
+    {
+      "prompt": "蓝色背景的高级产品图",
+      "style": "product"
+    },
+    {
+      "prompt": "黑色背景的电影感产品图",
+      "style": "cinematic"
+    }
+  ]
+}
