@@ -17,7 +17,10 @@ def check(condition, message):
 
 
 def main():
-    check(api.VERSION == '1.2.0', 'version')
+    check(api.VERSION == '1.3.0', 'version')
+    from task_store import record, search
+    with tempfile.TemporaryDirectory() as temp:
+        db = Path(temp) / 'tasks.sqlite3'; record({'task_id':'t1','created_at':'2026','status':'completed','prompt':'lake','profile':'p'}, db); check(search('lake', path=db)[0]['task_id'] == 't1', 'task store')
     check(api.safe_json('data:image/png;base64,abc').startswith('[data URL omitted'), 'redaction')
     check(api.normalize_task({'prompt': 'x', 'endpoint': 'evil', 'api_key': 'secret'})['prompt'] == 'x', 'normalization')
     try: api.validate_input_image('/etc/passwd'); raise AssertionError('path accepted')
@@ -39,6 +42,6 @@ def main():
         check(stat.S_IMODE(connection.CONFIG.stat().st_mode) == 0o600, 'setup permissions')
         check('audit-key' not in json.dumps(connection.setup_status()), 'setup redaction')
         connection.CONFIG, connection.WORK = old_config, old_work
-    print(json.dumps({'status': 'ok', 'tests': 11}, ensure_ascii=False))
+    print(json.dumps({'status': 'ok', 'tests': 12}, ensure_ascii=False))
 
 if __name__ == '__main__': main()

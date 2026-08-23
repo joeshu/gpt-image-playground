@@ -24,11 +24,15 @@ try:
     from connection import connection, setup_from_json, setup_status
 except ImportError:
     from scripts.connection import connection, setup_from_json, setup_status
+try:
+    from task_store import search as search_tasks
+except ImportError:
+    from scripts.task_store import search as search_tasks
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '1.2.0'
+VERSION = '1.3.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
 API_WORK = WORK / 'api'
@@ -467,15 +471,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('Content-Disposition', f'attachment; filename="{result_path.name}"')
                 self.end_headers(); self.wfile.write(raw); return
             if parsed.path == '/v1/history':
-                limit = int(parse_qs(parsed.query).get('limit', ['20'])[0])
-                if not 1 <= limit <= 200: raise ValueError('limit 必须在 1-200 之间')
-                history = WORK / 'history.jsonl'
-                rows = []
-                if history.exists():
-                    for line in history.read_text(encoding='utf-8').splitlines()[-limit:]:
-                        try: rows.append(safe_json(json.loads(line)))
-                        except json.JSONDecodeError: pass
-                return self.send_json(200, {'items': list(reversed(rows))})
+                params = parse_qs(parsed.query); limit = int(params.get('limit', ['20'])[0])
+                return self.send_json(200, {'items': search_tasks(params.get('q', [''])[0], params.get('status', [''])[0], params.get('profile', [''])[0], limit)})
             return self.send_json(404, {'error': 'not_found'})
         except Exception as exc:
             return self.send_json(400, {'error': str(exc)})

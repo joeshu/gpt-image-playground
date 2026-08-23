@@ -18,6 +18,11 @@ try:
 except ImportError:
     from scripts.connection import apply_environment, connection, setup_from_json, setup_status
 
+try:
+    from task_store import record as record_task, search as search_tasks
+except ImportError:
+    from scripts.task_store import record as record_task, search as search_tasks
+
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 FALLBACK_ROOT = Path('/var/minis/workspace/gpt-image-playground-skill')
 LOWER = Path('/var/minis/skills/gpt-image-tool/scripts/generate.py')
@@ -86,6 +91,8 @@ def add_history(entry):
     WORK.mkdir(parents=True, exist_ok=True)
     with open(HISTORY, 'a', encoding='utf-8') as f:
         f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    try: record_task(entry)
+    except Exception: pass
 
 
 def read_history():

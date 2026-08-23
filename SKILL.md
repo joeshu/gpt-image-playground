@@ -1,6 +1,6 @@
 ---
 name: gpt-image-playground
-version: 1.2.0
+version: 1.3.0
 description: GPT Image Playground 上层编排技能。基于 gpt-image-tool 底层执行器，支持自然语言文生图、图片编辑、多参考图融合、批量生成与风格预设。
 ---
 
@@ -392,3 +392,11 @@ v1.2 新增：
 - 异步 Job SSE：`GET /v1/jobs/{job_id}/events`
 - 原生 `background`、`moderation`、`quality: auto` 和 `size: auto` 参数
 - GitHub Actions Python 编译、API、CLI、Agent Dry Run 自动测试
+
+## v1.3 Web 与历史增强
+
+- Canvas 遮罩编辑器：主图上直接涂抹白色修改区域
+- 参考图拖拽上传和剪贴板图片粘贴
+- SQLite 任务索引：`workspace/gpt-image-playground/tasks.sqlite3`
+- REST 历史搜索：`GET /v1/history?q=关键词&status=completed&profile=default`
+- Agent session 增加 `branch_id` 和 `parent_branch_id` 元数据，为后续分支恢复保留兼容字段

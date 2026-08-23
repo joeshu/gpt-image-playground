@@ -1,4 +1,4 @@
-# GPT Image Playground v1.2
+# GPT Image Playground v1.3
 
 ## 首次使用配置
 
@@ -158,3 +158,16 @@ python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --import-pr
 - Job SSE 事件流
 - 实际参数和 revised prompt 摘要
 - GitHub Actions 自动测试
+
+## v1.3 Web 与历史增强
+
+- Canvas 遮罩编辑器
+- 参考图拖拽和剪贴板粘贴
+- SQLite 任务索引和历史搜索
+- Agent session 分支元数据
+
+历史搜索示例：
+
+```text
+GET /v1/history?q=海报&status=completed&profile=default
+```

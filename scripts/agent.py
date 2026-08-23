@@ -337,6 +337,8 @@ def run(args):
               'session_path_link': minis_link(session_path), 'response_path': str(response_path), 'response_path_link': minis_link(response_path)}
     save_session(session_path, {
         'conversation_id': conversation_id, 'profile': args.profile,
+        'branch_id': session.get('branch_id', 'main') if session else 'main',
+        'parent_branch_id': session.get('branch_id') if session else None,
         'rounds': len(raw_responses), 'current_input': current_input,
         'generated': generated, 'raw_responses': raw_responses,
         'final_text': final_text, 'status': 'completed',
