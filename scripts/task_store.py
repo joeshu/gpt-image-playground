@@ -5,7 +5,12 @@ import sqlite3
 import time
 from pathlib import Path
 
-WORK = Path('/var/minis/workspace/gpt-image-playground')
+try:
+    from runtime_paths import data_root
+except ImportError:
+    from scripts.runtime_paths import data_root
+
+WORK = data_root()
 DB = WORK / 'tasks.sqlite3'
 _LEGACY_MIGRATED = False
 

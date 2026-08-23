@@ -25,6 +25,28 @@ except Exception:
 OMIT = object()
 
 
+class ProviderHTTPError(RuntimeError):
+    """HTTP failure retaining the status code for polling decisions."""
+
+    def __init__(self, status_code, message):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def retryable_poll_status(status_code):
+    return status_code in (408, 425, 429) or 500 <= status_code <= 599
+
+
+def retryable_poll_error(error):
+    if isinstance(error, ProviderHTTPError):
+        return retryable_poll_status(error.status_code)
+    return isinstance(error, (requests.RequestException, TimeoutError, OSError))
+
+
+def poll_delay(interval, attempt, maximum=30):
+    return min(float(maximum), max(0.0, float(interval)) * (2 ** max(0, attempt - 1)))
+
+
 def read_json(path):
     with open(path, encoding='utf-8') as f:
         return json.load(f)
@@ -163,7 +185,7 @@ def request(method, url, headers, query=None, body=None, files=None, timeout=900
     meta = {'status_code': response.status_code, 'content_type': content_type,
             'content_length': response.headers.get('content-length', ''), 'url': url}
     if not response.ok:
-        raise RuntimeError(f'HTTP {response.status_code}: {json.dumps(payload, ensure_ascii=False)[:1500]}')
+        raise ProviderHTTPError(response.status_code, f'HTTP {response.status_code}: {json.dumps(payload, ensure_ascii=False)[:1500]}')
     return payload, meta, raw_text
 
 
@@ -253,12 +275,24 @@ def main():
     poll = manifest.get('poll')
     if task_id_value is not None and poll:
         deadline = time.time() + int(task.get('poll_timeout', 300)); last = payload
+        poll_events = []
+        interval = poll.get('intervalSeconds', 5)
+        max_interval = poll.get('maxIntervalSeconds', 30)
+        poll_attempt = 0
         while time.time() < deadline:
-            time.sleep(max(0, int(poll.get('intervalSeconds', 5))))
+            poll_attempt += 1
+            time.sleep(min(poll_delay(interval, poll_attempt, max_interval), max(0, deadline - time.time())))
             poll_context = dict(context); poll_context['task_id'] = task_id_value
             poll_url = join_url(base, str(poll.get('path', '')).replace('{task_id}', urllib.parse.quote(str(task_id_value), safe='')))
             poll_body = render(poll.get('body', {}), poll_context); poll_query = render(poll.get('query', {}), poll_context)
-            last, poll_meta, poll_raw = request(poll.get('method', 'GET'), poll_url, headers, poll_query, poll_body)
+            try:
+                last, poll_meta, poll_raw = request(poll.get('method', 'GET'), poll_url, headers, poll_query, poll_body)
+                poll_events.append({'attempt': poll_attempt, 'status_code': poll_meta.get('status_code'), 'state': path_get(last, poll.get('statusPath', ''))})
+            except Exception as exc:
+                if not retryable_poll_error(exc):
+                    raise
+                poll_events.append({'attempt': poll_attempt, 'error': str(exc)[:500], 'retryable': True})
+                continue
             status = str(path_get(last, poll.get('statusPath', ''))).lower()
             if status in {str(v).lower() for v in poll.get('successValues', [])}:
                 final = last; break
@@ -267,12 +301,15 @@ def main():
                 raise RuntimeError(f'异步任务失败: {reason}')
         else:
             raise RuntimeError(f'异步任务轮询超时: {task_id_value}')
+        write_json(work / f'{prefix}-poll-events.json', poll_events)
     write_json(response_path, final)
     result_mapping = poll.get('result') if (poll and task_id_value is not None) else submit.get('result')
     saved = extract_images(final, result_mapping, out, prefix, headers)
     if not saved and not async_note:
         raise RuntimeError('自定义供应商响应未提取到图片，请检查 result.imageUrlPaths/b64JsonPaths')
     summary = {'endpoint': url, 'model': task.get('model'), 'size': task.get('size'), 'n': task.get('n'), 'has_input_images': bool(task.get('images')), 'request_file': str(request_path), 'initial_response_file': str(initial_path), 'response_file': str(response_path), 'saved_images': saved, 'async_note': async_note}
+    if task_id_value is not None and poll:
+        summary['poll_events_file'] = str(work / f'{prefix}-poll-events.json')
     write_json(summary_path, summary); print(json.dumps({**summary, 'summary_path': str(summary_path)}, ensure_ascii=False, indent=2))
 
 

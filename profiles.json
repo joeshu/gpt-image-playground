@@ -6,7 +6,8 @@
       "name": "默认 GPT Image 接口",
       "provider": "openai-compatible",
       "endpoint": "",
-      "model": "gpt-5.6-sol",
+      "model": "gpt-image-2",
+      "agent_model": "gpt-5.6-terra",
       "models": ["gpt-image-2", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
       "api_key_env": "GPT_IMAGE_API_KEY",
       "agent_endpoint": ""
@@ -17,6 +18,7 @@
       "provider": "openai-compatible",
       "endpoint": "https://2api.aiwanwu.cc/v1/images/generations",
       "model": "gpt-image-2",
+      "agent_model": "gpt-5.6-terra",
       "models": ["gpt-image-2"],
       "api_key_env": "GPT_IMAGE_API_KEY",
       "agent_endpoint": ""

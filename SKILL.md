@@ -1,189 +1,109 @@
 ---
 name: gpt-image-playground
-description: 可被其他 AI 工具调用的图片生成编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job、Web 工作台、首次配置、历史、画廊、收藏、备份恢复和安全文件管理。用户要求生成/编辑/批量处理图片，或需要图片 Provider、Agent、API、Web 工作台时使用。
+description: 图片生成与编辑编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI 和异步 Job。当用户需要生成、编辑、批量处理图片，或需要图片 Provider、Agent、API 能力时使用。
 version: 2.7.0
 ---
 
-# GPT Image Playground 技能
+# GPT Image Playground
 
-## 定位
+## Skill Contract
 
-这是一个**可被其他 AI 工具直接调用的图片生成技能**，不是单纯的前端项目。它把自然语言、CLI、REST、OpenAPI 和 Agent 工具调用统一编排到图片 Provider：
+本文件是唯一权威技能入口。支持 Skill.md 规范的 Agent 应先读取本文件，再调用项目脚本。完整使用说明、参数表和案例位于 `README.md`。
+
+## Capabilities
+
+- Text-to-image and image editing
+- Reference images and mask editing
+- Batch generation with concurrency and failure isolation
+- OpenAI-compatible Images API
+- Images API supports `execution_mode=auto`, `native` and `script`
+- OpenAI Responses API with Agent orchestration and optional SSE streaming
+- Agent native mode uses the provider's native image-generation capability directly; mixed mode uses local `generate_image` tools
+- Agent supports stable image IDs, prompt-embedded `<ref id="..." />` references, branch-safe session state and streamed text events
+- fal.ai queue provider
+- Declarative synchronous and asynchronous custom providers
+- Local history, SQLite gallery, favorites, thumbnails and backups
+- REST/OpenAPI service with asynchronous Jobs and SSE events
+
+## Entry Points
+
+Run commands from the skill root:
+
+```sh
+python3 scripts/skill.py check
+python3 scripts/playground.py --prompt "<prompt>"
+python3 scripts/agent.py --prompt "<prompt>"
+python3 scripts/agent.py --execution-mode native --prompt "<prompt>"
+python3 scripts/agent.py --stream --prompt "<prompt>"
+python3 scripts/api_server.py --host 127.0.0.1 --port 8765
+```
+
+Use `--dry-run` for validation without calling a provider:
+
+```sh
+python3 scripts/playground.py --prompt "test" --dry-run
+python3 scripts/agent.py --prompt "test" --dry-run
+```
+
+## Agent Protocol
+
+- Read JSON from command stdout.
+- Treat a zero exit code as a successful command execution.
+- Read `saved_images` for image generation results.
+- Read `requested_params`, `actual_params`, `attempts` and `timing` for normalized execution diagnostics.
+- Read `images` for Agent results.
+- Read `events_file` for JSONL Agent round and tool-call lifecycle events.
+- For asynchronous `/v1/agent` jobs, consume the same lifecycle events from `/v1/jobs/{id}/events`; each event includes `job_id` and `event_id`.
+- Agent Job SSE events are emitted while the subprocess is running; the final response may repeat persisted events for completeness.
+- Resuming a session replays persisted `pending_tool_calls` before requesting another model round, preventing an interrupted tool execution from being silently skipped.
+- Completed Agent tools are cached by `tool_call_id`; recovery reuses their results and executes only remaining calls.
+- Agent defaults to `--execution-mode native`, sends the native image-generation tool, and does not register local `generate_image` tools. `script` and `auto` retain mixed orchestration.
+- Read `job_id` for asynchronous REST jobs.
+- For batch results, use `batch_id` and each result's `batch_item_id` as stable retry and deduplication keys.
+- Retrying a partial batch reuses successful results and executes failed items only; results expose `reused`, `retried` and `retry_of`.
+- Read `error`, `error_code` and the non-zero exit code for failures.
+- Use `README.md` for complete examples and `GET /openapi.json` for REST schemas.
+
+## Providers
+
+Provider selection uses Profile configuration:
 
 ```text
-其他 AI / CLI / Web
-        ↓
-gpt-image-playground
-        ↓
-Images API / Responses API / fal.ai / 自定义 Provider
-        ↓
-图片文件、任务历史、画廊和 Agent 会话
+provider=openai-compatible, api_mode=images  -> Images API
+api_mode=responses                          -> Responses API
+provider=fal                                -> fal.ai queue
+custom provider id                          -> custom adapter
 ```
 
-底层 OpenAI-compatible 图片请求继续复用 `gpt-image-tool`；本技能负责配置、参数、任务、Provider、Agent、Web 和安全边界。
+Profiles are stored in `profiles.json`. Custom provider examples are stored in `profiles.custom.sync.example.json` and `profiles.custom.async.example.json`.
 
-## 何时使用
+## Configuration
 
-- 生成一张或多张图片
-- 使用参考图或 mask 编辑图片
-- 批量生成、失败隔离和重试
-- 通过 Responses Agent 多轮规划图片
-- 接入 OpenAI-compatible、Responses、fal.ai 或自定义图片接口
-- 为其他 AI 工具提供本地 REST/OpenAPI 图片能力
-- 查看历史、画廊、收藏、导出或恢复备份
-
-## 首次配置
-
-没有环境变量时首次运行：
-
-```sh
-python3 scripts/playground.py --setup
-```
-
-或导入 JSON：
-
-```sh
-python3 scripts/playground.py --setup-json connection.example.json
-```
-
-配置保存在：
-
-```text
-/var/minis/workspace/gpt-image-playground/connection.json
-```
-
-权限为 `600`。真实 API Key 不进入仓库、任务、历史、OpenAPI 或浏览器 localStorage。
-
-查看状态：
-
-```sh
-python3 scripts/playground.py --connection-status
-```
-
-生产/CI 可使用环境变量：
+Supported user-project environment variables:
 
 ```text
 GPT_IMAGE_ENDPOINT
 GPT_IMAGE_API_KEY
 GPT_AGENT_ENDPOINT
 FAL_KEY
+GPT_PLAYGROUND_API_TOKEN
+GPT_IMAGE_PLAYGROUND_ROOT
+GPT_IMAGE_PLAYGROUND_DATA
+GPT_IMAGE_PLAYGROUND_ATTACHMENTS
+GPT_IMAGE_PLAYGROUND_INPUT_ROOT
 ```
 
-环境变量优先于本地连接配置。
+The local connection file is created by `--setup`, uses permission `600`, and stores user-provided credentials outside the repository.
 
-## CLI
+## REST Contract
 
-普通生成：
-
-```sh
-python3 scripts/playground.py \
-  --profile default \
-  --prompt "电影海报，夜晚城市，宽幅构图"
-```
-
-参考图和 mask：
-
-```sh
-python3 scripts/playground.py \
-  --prompt "只修改选区内容" \
-  --image /var/minis/attachments/source.png \
-  --mask /var/minis/attachments/mask.png
-```
-
-Dry Run：
-
-```sh
-python3 scripts/playground.py --prompt "测试" --dry-run
-```
-
-Profile 校验：
-
-```sh
-python3 scripts/playground.py --validate-profiles
-```
-
-Agent：
-
-```sh
-python3 scripts/agent.py \
-  --profile default \
-  --prompt "先设计角色，再生成三张场景图"
-```
-
-Agent 分支和指定轮次重生成：
-
-```sh
-python3 scripts/agent.py \
-  --branch-from session.json \
-  --branch-to branch.json
-
-python3 scripts/agent.py \
-  --regenerate-session session.json \
-  --round-index 2 \
-  --branch-to regenerated.json
-```
-
-## Provider
-
-Profile 文件：
-
-```text
-profiles.json
-profiles.custom.sync.example.json
-profiles.custom.async.example.json
-```
-
-支持：
-
-```text
-provider=openai-compatible
-api_mode=images
-api_mode=responses
-provider=fal
-provider=custom
-```
-
-Responses 模式：
-
-```json
-{
-  "api_mode": "responses"
-}
-```
-
-fal.ai 示例：
-
-```json
-{
-  "provider": "fal",
-  "model": "fal-ai/gpt-image-1"
-}
-```
-
-自定义 Provider 支持 JSON、multipart、同步、异步轮询、task_id、URL/Base64 图片和响应路径映射。
-
-## REST / OpenAPI
-
-启动服务：
-
-```sh
-python3 scripts/api_server.py --host 127.0.0.1 --port 8765
-```
-
-停止服务：
-
-```sh
-python3 scripts/api_server.py --stop
-```
-
-主要接口：
+The local server listens on `127.0.0.1` by default. Main routes:
 
 ```text
 GET  /healthz
 GET  /openapi.json
 GET  /v1/profiles
-GET  /v1/setup/status
-POST /v1/setup
+GET  /v1/models
 POST /v1/generate
 POST /v1/batch
 POST /v1/agent
@@ -191,294 +111,29 @@ GET  /v1/jobs/{id}
 GET  /v1/jobs/{id}/events
 GET  /v1/history
 GET  /v1/gallery
-GET  /v1/favorites
-POST /v1/favorite
-POST /v1/delete-images
-POST /v1/export-zip
 POST /v1/backup/export
 POST /v1/backup/import
-GET  /v1/thumbnails
-POST /v1/agent/branch
-POST /v1/agent/regenerate
 ```
 
-异步任务：
+Set `GPT_PLAYGROUND_API_TOKEN` before binding to a non-localhost address. Use `/v1/jobs/{id}/events` for SSE progress events.
 
-```json
-{
-  "prompt": "生成产品图",
-  "profile": "default",
-  "async": true
-}
-```
+## Safety Contract
 
-通过 `/v1/jobs/{id}/events` 获取 SSE：
+- API keys come from user-project environment variables or the local `600` permission connection file.
+- Keys are excluded from tasks, history, logs, API responses and browser storage.
+- Remote image URLs are rejected by the REST input validator.
+- Local image paths must belong to an allowed attachment, data, skill or explicitly configured input directory.
+- ZIP restore validates archive paths and uses staging before applying changes.
+- Physical image deletion requires an explicit request.
 
-```text
-event: running
-event: completed
-event: failed
-```
-
-首次配置接口：
-
-```json
-{
-  "profile": "default",
-  "endpoint": "https://api.example.com/v1/images/generations",
-  "api_key": "首次填写",
-  "model": "gpt-image-2"
-}
-```
-
-远程监听必须配置 `GPT_PLAYGROUND_API_TOKEN`，否则服务只允许 localhost。图片 URL 只允许 Data URL 或 Minis 白名单本地路径，防止 SSRF。
-
-## Web 工作台
-
-启动 API 后打开：
-
-```text
-http://127.0.0.1:8765/
-```
-
-支持：
-
-- 首次连接配置
-- Prompt、Profile、尺寸、质量和生成数量
-- 参考图文件选择、拖拽、剪贴板粘贴
-- Canvas mask 编辑器
-- 同步/异步 Job
-- 结果预览和 Lightbox
-- Lightbox 上一张/下一张
-- 历史搜索
-- 画廊、缩略图和收藏
-- 多选、批量收藏、批量删除
-- ZIP 结果导出和备份导出
-
-## 历史、画廊和备份
-
-任务索引：
-
-```text
-/var/minis/workspace/gpt-image-playground/tasks.sqlite3
-```
-
-旧版 `history.jsonl` 会在搜索时迁移。图片使用 SHA-256 索引，缩略图缓存于图片目录 `.thumbs/`。
-
-备份导出：
-
-```http
-POST /v1/backup/export
-```
-
-备份包含：
-
-```text
-manifest.json
-images/
-任务历史
-图片索引
-收藏状态
-```
-
-安全恢复：
-
-```http
-POST /v1/backup/import
-```
-
-```json
-{
-  "path": "/var/minis/workspace/gpt-image-playground/backup.zip",
-  "apply": true,
-  "conflict": "skip"
-}
-```
-
-`conflict` 可选：
-
-```text
-fail     遇到已有任务/图片立即失败
-skip     保留现有内容并跳过冲突
-replace  用备份内容替换
-```
-
-恢复使用 staging、路径校验和失败文件回滚，不直接覆盖原数据库。
-
-## Agent
-
-Agent 受控工具：
-
-```text
-generate_image
-generate_image_batch
-continue_generation
-```
-
-支持：
-
-- 最多 8 轮
-- 批量并发
-- 图片引用
-- session 保存/恢复
-- branch fork
-- 指定轮次重生成请求
-- 网络类错误重试
-- 单个工具失败隔离
-
-## 安全约束
-
-- API Key 只来自环境变量或权限 `600` 本地配置
-- 不上传 `connection.json`
-- 不把 Key 写入任务、历史、响应或前端存储
-- API 默认监听 localhost
-- 远程监听必须 Bearer Token
-- 图片路径限制在 `/var/minis/attachments`、`workspace`、`mounts`
-- 拒绝远程图片 URL，防止 SSRF
-- ZIP 拒绝绝对路径和路径穿越
-- 删除默认只删除索引，物理文件删除必须显式指定
-
-## 测试
+## Verification
 
 ```sh
-python3 -m compileall -q .
-python3 tests/test_api.py
+python3 scripts/skill.py check
 python3 scripts/playground.py --validate-profiles
 python3 scripts/playground.py --prompt "test" --dry-run
 python3 scripts/agent.py --prompt "test" --dry-run
+python3 -m py_compile scripts/*.py tests/*.py
+python3 tests/test_api.py
+python3 tests/test_providers.py
 ```
-
-GitHub Actions 会执行 Python 编译、API 测试、CLI Dry Run 和 Agent Dry Run。
-
-## 项目结构
-
-```text
-scripts/
-├── agent.py
-├── api_server.py
-├── connection.py
-├── custom_provider.py
-├── fal_provider.py
-├── image_ops.py
-├── image_store.py
-├── playground.py
-├── responses_provider.py
-└── task_store.py
-web/index.html
-tests/test_api.py
-profiles.json
-presets.json
-connection.example.json
-```
-
-当前版本：`2.0.3`。
-
-## v1.9
-
-- 备份恢复冲突策略：`fail`、`skip`、`replace`
-- `apply: true` 恢复失败时删除本次复制文件并终止，不覆盖原有任务
-- Agent 指定轮次重生成：`--round-index N`
-- Web 画廊多选、批量收藏/删除和 Lightbox 导航
-
-## v2.0 稳定版契约
-
-- API 版本：`2.0.0`，兼容 v1 客户端
-- `GET /v1/version` 返回 `min_client_version` 与兼容范围
-- API 错误统一为 `{ "error": { "code": "...", "message": "...", "details": {} } }`
-- OpenAPI 提供版本、生成、批量、Agent、Job、画廊、备份、图片和配置接口
-- 发布前执行编译、API、CLI、Agent、Provider、敏感扫描和 Git 工作区检查
-
-## 原生接口模型模式
-
-原生接口仍然可以、也通常需要选择具体模型，例如 `gpt-5.6-sol`。`omit_model` 只是特殊兼容开关：只有接口明确要求服务端自动选模型时，才完全省略 `model`。
-
-Profile：
-
-```json
-{
-  "id": "native-images",
-  "provider": "openai-compatible",
-  "endpoint": "https://api.example.com/v1/images/generations",
-  "model": "gpt-5.6-sol"
-}
-```
-
-CLI 选择模型：
-
-```sh
-python3 scripts/playground.py \
-  --profile default \
-  --model gpt-5.6-sol \
-  --prompt "一只橘猫头像"
-```
-
-此时最终请求体包含：
-
-```json
-{
-  "model": "gpt-5.6-sol"
-}
-```
-
-只有在服务端明确要求不传模型时才使用：
-
-```sh
-python3 scripts/playground.py \
-  --profile default \
-  --omit-model \
-  --prompt "一只橘猫头像"
-```
-
-`model` 与 `omit_model` 同时显式指定会报错，避免产生歧义。Profile 中的 `omit_model` 也会被显式 `--model` 或任务 JSON 的 `model` 覆盖。
-
-Dry Run 会检查最终请求文件，确认模型字段是否按选择真实发送或省略。
-
-## Provider 能力配置建议
-
-原库的能力边界值得在本技能中显式区分：
-
-- Images API：单图、批量、参考图、遮罩、透明背景参数取决于接口
-- Responses API：Agent、多轮上下文、图片工具取决于 Agent endpoint
-- fal.ai：通常是队列提交与轮询，不假设支持 Images API 的全部参数
-- 自定义 Provider：通过 `customProviders` 声明同步/异步提交、轮询、结果路径和参数映射
-- 原生默认模型接口：使用 `omit_model: true`，不要伪造模型名
-
-建议每个 Profile 增加能力声明：
-
-```json
-{
-  "capabilities": {
-    "model_optional": true,
-    "supports_images_api": true,
-    "supports_responses": false,
-    "supports_transparent_background": false,
-    "supports_streaming": false
-  }
-}
-```
-
-能力声明用于 UI 提示和请求前校验，不会把 API Key 写入任务或请求日志。
-
-## 模型选择与参数兼容
-
-模型不是固定常量。每个 Profile 保存默认 `model` 和可选 `models`，全局 `model_catalog.json` 提供推荐目录。支持 `gpt-image-2`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`，也允许经过安全校验的自定义模型 ID。
-
-选择优先级：`task.model > --model > Profile.model`。`omit_model` 只代表最终 JSON 完全省略 `model`，不能与显式模型并用。
-
-`GET /v1/models` 返回全局目录和各 Profile 的可用模型，便于 Web 或其他 AI 工具动态选择，不需要硬编码模型列表。
-
-## 双执行模式
-
-`execution_mode` 可选：`native`、`script`、`auto`。`native` 由 Images Provider 模块直接发 HTTP 请求；`script` 调用主技能自带 `scripts/generate.py`；`auto` 优先 native，失败后回退 script。Responses、fal.ai、Custom 仍通过各自适配器运行。
-
-## Native Provider 增强
-
-Native Images Provider 现在支持参考图和 mask 的 `image_urls`/`mask` 请求字段、Base64/URL 结果解析，并在 `auto` 回退到 Script 时返回 `fallback_from` 与 `fallback_reason`。结果还包含实际 `execution_mode` 和 `provider`，其他 AI 可以据此判断真实执行路径。
-
-## Native Images Edit
-
-Native Images Provider 在检测到 `images`/`image_urls` 或 `mask` 时，自动将 `/images/generations` 切换为 `/images/edits`，使用 multipart/form-data 上传多个 `image[]` 和可选 `mask` 文件；无参考图时仍使用 JSON generations。支持本地路径、Data URL 和 HTTP 图片 URL。
-
-## Native Streaming
-
-Native Images Provider 支持任务中的 `stream: true`。它向 Provider 请求 SSE，将 `data:` 事件按 JSONL 写入 `<task_id>-events.jsonl`；包含 `partial_image_b64` 的事件会落盘为中间 PNG/JPEG，并在事件中记录 `partial_image_path`。最终仍返回标准 `saved_images`，同时返回 `events_file`，兼容不支持流式的旧调用方。

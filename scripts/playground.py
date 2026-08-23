@@ -27,10 +27,17 @@ try:
     from provider_base import ProviderContext, ProviderError, ProviderRegistry, provider_environment
 except ImportError:
     from scripts.provider_base import ProviderContext, ProviderError, ProviderRegistry, provider_environment
+try:
+    from version import VERSION
+except ImportError:
+    from scripts.version import VERSION
+try:
+    from runtime_paths import attachments_root, data_root, external_tool_root, skill_root
+except ImportError:
+    from scripts.runtime_paths import attachments_root, data_root, external_tool_root, skill_root
 
-ROOT = Path('/var/minis/skills/gpt-image-playground')
-FALLBACK_ROOT = Path('/var/minis/workspace/gpt-image-playground-skill')
-BASE = ROOT if ROOT.exists() else FALLBACK_ROOT
+ROOT = skill_root()
+BASE = ROOT
 PRESETS = BASE / 'presets.json'
 PROFILES = BASE / 'profiles.json'
 MODEL_CATALOG = BASE / 'model_catalog.json'
@@ -45,8 +52,8 @@ def model_catalog():
 
 def valid_model_id(value):
     return isinstance(value, str) and bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}', value))
-OUT = Path('/var/minis/attachments/gpt-image-playground')
-WORK = Path('/var/minis/workspace/gpt-image-playground')
+OUT = attachments_root()
+WORK = data_root()
 HISTORY = WORK / 'history.jsonl'
 MAX_IMAGES = 16
 MAX_CONCURRENCY = 4
@@ -168,13 +175,21 @@ def validate_profiles_config():
     if not isinstance(profiles, list) or not profiles:
         raise ValueError('profiles.json 必须包含非空 profiles 数组')
     ids = set()
-    providers = {item.get('id') for item in config.get('customProviders', []) if isinstance(item, dict)}
+    custom_providers = config.get('customProviders', [])
+    if not isinstance(custom_providers, list):
+        raise ValueError('customProviders 必须是数组')
+    provider_ids = [item.get('id') for item in custom_providers if isinstance(item, dict)]
+    if len(provider_ids) != len(set(provider_ids)):
+        raise ValueError('customProvider id 重复')
+    providers = set(provider_ids)
+    defaults = 0
     for profile in profiles:
         if not isinstance(profile, dict) or not profile.get('id'):
             raise ValueError('每个 Profile 必须有 id')
         if profile['id'] in ids:
             raise ValueError(f'Profile id 重复: {profile["id"]}')
         ids.add(profile['id'])
+        defaults += int(bool(profile.get('isDefault')))
         provider = profile.get('provider', 'openai-compatible')
         if provider not in ('openai', 'openai-compatible', 'fal', 'fal.ai') and provider not in providers:
             raise ValueError(f'Profile 引用不存在的供应商: {provider}')
@@ -190,7 +205,12 @@ def validate_profiles_config():
     default = config.get('default_profile')
     if default and default not in ids:
         raise ValueError(f'default_profile 不存在: {default}')
-    for provider in config.get('customProviders', []):
+    if defaults > 1:
+        raise ValueError('Profile 最多只能有一个 isDefault')
+    if not default:
+        marked = [item.get('id') for item in profiles if item.get('isDefault')]
+        default = marked[0] if marked else profiles[0].get('id')
+    for provider in custom_providers:
         if not isinstance(provider, dict) or not provider.get('id'):
             raise ValueError('每个 customProvider 必须有 id')
         submit = provider.get('submit')
@@ -198,7 +218,7 @@ def validate_profiles_config():
             raise ValueError(f'供应商 {provider.get("id")} 缺少 submit.path')
         if provider.get('poll') and not submit.get('taskIdPath'):
             raise ValueError(f'供应商 {provider.get("id")} 有 poll 但 submit 缺少 taskIdPath')
-    return {'profiles': len(profiles), 'customProviders': len(config.get('customProviders', [])), 'default_profile': default}
+    return {'profiles': len(profiles), 'customProviders': len(custom_providers), 'default_profile': default, 'version': VERSION}
 
 
 def import_profiles(source_path, merge=False):
@@ -343,7 +363,7 @@ def build_task(source, cli, presets, current_id):
         'omit_model': omit_model,
         'n': n,
         'images': images,
-        'api_mode': source.get('api_mode') or profile.get('api_mode') or 'images',
+        'api_mode': source.get('api_mode') or getattr(cli, 'api_mode', None) or profile.get('api_mode') or 'images',
         'execution_mode': source.get('execution_mode') or cli.execution_mode or profile.get('execution_mode') or 'auto',
         'stream': bool(source.get('stream') or getattr(cli, 'stream', False) or profile.get('stream', False)),
         'background': source.get('background') or source.get('transparent_background') or profile.get('background') or 'auto',
@@ -465,11 +485,13 @@ def execute_one(run_task, current_id, dry_run, retries):
     WORK.mkdir(parents=True, exist_ok=True)
     task_path = WORK / f'{current_id}-orchestrator-task.json'
     write_json(task_path, run_task)
-    registry = ProviderRegistry(BASE / 'scripts', Path('/var/minis/skills/gpt-image-tool/scripts'))
+    registry = ProviderRegistry(BASE / 'scripts', external_tool_root() / 'scripts')
     process_env = provider_environment(apply_environment(os.environ.copy(), run_task), run_task)
     context = ProviderContext(task=run_task, task_path=task_path, output_dir=OUT,
                               workspace_dir=WORK, dry_run=dry_run, task_id=current_id, retries=retries)
     attempts = 0
+    started_at = time.time()
+    requested_params = {key: run_task.get(key) for key in ('model', 'omit_model', 'size', 'quality', 'output_format', 'n', 'background', 'moderation', 'output_compression', 'api_mode', 'execution_mode') if run_task.get(key) is not None}
     last_error = None
     while attempts <= retries:
         attempts += 1
@@ -479,9 +501,15 @@ def execute_one(run_task, current_id, dry_run, retries):
             result = postprocess_result(result, run_task)
             result.setdefault('execution_mode', run_task.get('execution_mode', 'auto'))
             result.setdefault('provider', registry.resolve(run_task).name)
+            if run_task.get('batch_id'):
+                result['batch_id'] = run_task['batch_id']
+            if run_task.get('batch_item_id'):
+                result['batch_item_id'] = run_task['batch_item_id']
             result['attempts'] = attempts
+            result.setdefault('requested_params', requested_params)
             result['actual_params'] = {key: run_task.get(key) for key in ('model', 'omit_model', 'size', 'quality', 'output_format', 'n', 'background', 'moderation', 'output_compression', 'api_mode') if run_task.get(key) is not None}
             result['revised_prompts'] = [item.get('revised_prompt') for item in result.get('saved_images', []) if item.get('revised_prompt')]
+            result['timing'] = {'elapsed_ms': round((time.time() - started_at) * 1000)}
             result['status'] = 'dry_run' if dry_run else 'completed'
             return result
         except ProviderError as exc:
@@ -500,6 +528,11 @@ def execute_one(run_task, current_id, dry_run, retries):
         'error_code': last_error.code if last_error else 'provider_error',
         'task_file': str(task_path), 'task_file_link': minis_link(task_path),
     }
+    if run_task.get('batch_id'):
+        error['batch_id'] = run_task['batch_id']
+    if run_task.get('batch_item_id'):
+        error['batch_item_id'] = run_task['batch_item_id']
+    error['requested_params'] = requested_params
     return error
 
 
@@ -509,12 +542,69 @@ def retry_task(task_id_value, cli, presets):
         raise ValueError(f'找不到任务: {task_id_value}')
     if entry.get('status') not in ('failed', 'partial_failed'):
         raise ValueError('只允许重试 failed 或 partial_failed 任务')
+    if entry.get('summary_path') and entry.get('total') is not None:
+        return retry_batch(entry, cli, presets)
     result = entry.get('result')
     if isinstance(result, dict) and result.get('task_file'):
         source = read_json(result['task_file'])
     else:
         raise ValueError('历史记录缺少可重试的任务文件')
     return run_single(source, cli, presets, cli.dry_run)
+
+
+def retry_batch(entry, cli, presets):
+    summary_path = Path(entry['summary_path'])
+    summary = read_json(summary_path)
+    previous = summary.get('results')
+    if not isinstance(previous, list) or not previous:
+        raise ValueError('批量摘要缺少 results，无法部分重试')
+    batch_id = summary.get('batch_id') or entry.get('task_id')
+    results = [None] * len(previous)
+    retry_jobs = []
+    for index, previous_result in enumerate(previous):
+        status = previous_result.get('status') if isinstance(previous_result, dict) else 'failed'
+        if status in ('completed', 'dry_run'):
+            results[index] = {**previous_result, 'reused': True, 'retry_of': entry.get('task_id')}
+            continue
+        task_file = previous_result.get('task_file') if isinstance(previous_result, dict) else None
+        if not task_file:
+            raise ValueError(f'批量子任务 {index + 1} 缺少 task_file，无法重试')
+        source = read_json(task_file)
+        child_id = previous_result.get('batch_item_id') or f'{batch_id}-item-{index + 1}'
+        source['batch_id'] = batch_id
+        source['batch_item_id'] = child_id
+        retry_jobs.append((index, child_id, source))
+    workers = min(max(1, cli.concurrency), MAX_CONCURRENCY, max(1, len(retry_jobs)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        pending = {pool.submit(execute_one, build_task(source, cli, presets, child_id), child_id, cli.dry_run, cli.retry): index
+                   for index, child_id, source in retry_jobs}
+        for future in concurrent.futures.as_completed(pending):
+            index = pending[future]
+            results[index] = {**future.result(), 'retried': True, 'retry_of': entry.get('task_id')}
+    failed = sum(item.get('status') == 'failed' for item in results)
+    summary = {**summary, 'status': 'partial_failed' if failed else 'completed',
+               'succeeded': len(results) - failed, 'failed': failed,
+               'reused': sum(bool(item.get('reused')) for item in results),
+               'retried': sum(bool(item.get('retried')) for item in results),
+               'results': results, 'retry_of': entry.get('task_id')}
+    retry_number = int(summary.get('retry_count', 0)) + 1
+    summary['retry_count'] = retry_number
+    summary['previous_summary_path'] = str(summary_path)
+    retry_summary_path = summary_path.with_name(f'{batch_id}-retry-{retry_number}-summary.json')
+    summary['summary_path'] = str(retry_summary_path)
+    summary['summary_path_link'] = minis_link(retry_summary_path)
+    write_json(retry_summary_path, summary)
+    for item in results:
+        add_history({'task_id': item.get('task_id'), 'parent_task_id': batch_id,
+                     'created_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                     'status': item.get('status'), 'batch_id': batch_id,
+                     'batch_item_id': item.get('batch_item_id'), 'result': item})
+    add_history({'task_id': batch_id, 'created_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+                 'status': summary['status'], 'total': summary['total'],
+                 'succeeded': summary['succeeded'], 'failed': summary['failed'],
+                 'reused': summary['reused'], 'retried': summary['retried'],
+                 'summary_path': str(retry_summary_path), 'retry_of': entry.get('task_id')})
+    return summary
 
 
 def run_single(source, cli, presets, dry_run):
@@ -536,14 +626,18 @@ def run_batch(source, cli, presets, dry_run):
     if len(items) > 100:
         raise ValueError('单次批量任务最多 100 个子任务')
     effective_dry_run = bool(dry_run or (isinstance(source, dict) and source.get('dry_run')) or any(isinstance(item, dict) and item.get('dry_run') for item in items))
-    parent_id = task_id('gip-batch')
+    batch_id = source.get('batch_id') if isinstance(source, dict) else None
+    batch_id = batch_id or task_id('gip-batch')
+    parent_id = batch_id
     defaults = {k: v for k, v in source.items() if k != 'tasks'} if isinstance(source, dict) else {}
     jobs = []
     for item in items:
         if not isinstance(item, dict):
             raise ValueError('tasks 中每项必须是 JSON 对象')
         merged = dict(defaults); merged.update(item)
-        child_id = task_id('gip')
+        child_id = item.get('batch_item_id') if item.get('batch_item_id') else f'{batch_id}-item-{len(jobs) + 1}'
+        merged['batch_id'] = batch_id
+        merged['batch_item_id'] = child_id
         jobs.append((child_id, build_task(merged, cli, presets, child_id)))
     workers = min(max(1, cli.concurrency), MAX_CONCURRENCY, len(jobs))
     results = [None] * len(jobs)
@@ -553,14 +647,15 @@ def run_batch(source, cli, presets, dry_run):
         for future in concurrent.futures.as_completed(pending):
             results[pending[future]] = future.result()
     summary = {'task_id': parent_id, 'status': 'completed' if all(r.get('status') != 'failed' for r in results) else 'partial_failed',
-               'total': len(results), 'succeeded': sum(r.get('status') in ('completed', 'dry_run') for r in results),
+               'batch_id': batch_id, 'total': len(results), 'succeeded': sum(r.get('status') in ('completed', 'dry_run') for r in results),
                'failed': sum(r.get('status') == 'failed' for r in results), 'concurrency': workers, 'results': results}
     for (child_id, run_task), result in zip(jobs, results):
         add_history({'task_id': child_id, 'parent_task_id': parent_id,
                      'created_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                      'status': result.get('status'), 'prompt': run_task['prompt'],
                      'model': run_task['model'], 'size': run_task['size'],
-                     'n': run_task['n'], 'images': run_task['images'], 'result': result})
+                     'n': run_task['n'], 'images': run_task['images'], 'batch_id': batch_id,
+                     'batch_item_id': run_task.get('batch_item_id'), 'result': result})
     summary_path = WORK / f'{parent_id}-summary.json'
     write_json(summary_path, summary)
     summary['summary_path'] = str(summary_path); summary['summary_path_link'] = minis_link(summary_path)
@@ -582,7 +677,7 @@ def main():
     parser.add_argument('--background', choices=['auto', 'transparent', 'opaque'])
     parser.add_argument('--moderation', choices=['auto', 'low', 'medium', 'high'])
     parser.add_argument('--output-compression', type=int)
-    parser.add_argument('--model'); parser.add_argument('--omit-model', action='store_true'); parser.add_argument('--execution-mode', choices=['auto', 'native', 'script'], default='auto'); parser.add_argument('--stream', action='store_true'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
+    parser.add_argument('--model'); parser.add_argument('--omit-model', action='store_true'); parser.add_argument('--execution-mode', choices=['auto', 'native', 'script'], default='auto'); parser.add_argument('--api-mode', choices=['images', 'responses']); parser.add_argument('--stream', action='store_true'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
     parser.add_argument('--poll-timeout', type=int, default=300)
     parser.add_argument('--style'); parser.add_argument('--endpoint'); parser.add_argument('--retry', type=int, default=0)
     parser.add_argument('--validate-profiles', action='store_true')

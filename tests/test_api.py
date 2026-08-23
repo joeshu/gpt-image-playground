@@ -4,9 +4,10 @@ import os
 import stat
 import sys
 import tempfile
+import time
 from pathlib import Path
 
-ROOT = Path('/var/minis/skills/gpt-image-playground')
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import api_server as api
 import connection
@@ -20,24 +21,48 @@ def main():
     check(api.VERSION == '2.7.0', 'version')
     from pathlib import Path as _Path
     import json as _json
-    catalog = _json.loads((_Path('/var/minis/skills/gpt-image-playground/model_catalog.json')).read_text())
+    catalog = _json.loads((ROOT / 'model_catalog.json').read_text())
     check({'gpt-image-2', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'} <= {item['id'] for item in catalog['models']}, 'model catalog')
     from task_store import record, search
     with tempfile.TemporaryDirectory() as temp:
         db = Path(temp) / 'tasks.sqlite3'; record({'task_id':'t1','created_at':'2026','status':'completed','prompt':'lake','profile':'p'}, db); check(search('lake', path=db)[0]['task_id'] == 't1', 'task store')
     check(api.safe_json('data:image/png;base64,abc').startswith('[data URL omitted'), 'redaction')
+    with tempfile.TemporaryDirectory() as event_temp:
+        old_work = api.WORK
+        api.WORK = Path(event_temp)
+        event_file = api.WORK / 'agent-events.jsonl'
+        event_file.write_text(json.dumps({'event': 'tool.completed', 'tool_call_id': 'call-1'}) + '\n', encoding='utf-8')
+        api.JOB_EVENTS.clear()
+        check(api.forward_agent_events('job-test', {'events_file': str(event_file)}) == 1, 'agent event forwarding')
+        check(api.JOB_EVENTS['job-test'][0]['data']['event_id'] == 'job-test-event-1', 'event id')
+        api.WORK = old_work
+    with tempfile.TemporaryDirectory() as event_temp:
+        event_file = Path(event_temp) / 'events.jsonl'
+        event_file.write_text(json.dumps({'event': 'round.started'}) + '\n', encoding='utf-8')
+        received = []
+        position = api.stream_event_file(event_file, 0, received.append)
+        check(position == event_file.stat().st_size and received[0]['event'] == 'round.started', 'event streaming')
+    check(len({item['data']['event_id'] for item in api.JOB_EVENTS.get('job-test', [])}) == len(api.JOB_EVENTS.get('job-test', [])), 'event ids unique')
+    with tempfile.TemporaryDirectory() as process_temp:
+        output_script = Path(process_temp) / 'writer.py'
+        output_script.write_text("import json, sys\nprint(json.dumps({'status': 'ok'}))\nprint('err', file=sys.stderr)\n", encoding='utf-8')
+        result = api.run_executor([sys.executable, str(output_script)], {}, 10)
+        check(result == {'status': 'ok'}, 'process output collection')
     check(api.normalize_task({'prompt': 'x', 'endpoint': 'evil', 'api_key': 'secret'})['prompt'] == 'x', 'normalization')
     try: api.validate_input_image('/etc/passwd'); raise AssertionError('path accepted')
     except ValueError: pass
-    image = next(Path('/var/minis/attachments/gpt-image-playground').glob('*.png'))
-    paths = api.result_paths({'saved_images': [{'path': str(image)}]})
-    check(paths == [image.resolve()], 'result paths')
+    with tempfile.TemporaryDirectory() as image_temp:
+        image = Path(image_temp) / 'fixture.png'
+        image.write_bytes(b'fixture')
+        api.ALLOWED_ROOTS = (*api.ALLOWED_ROOTS, Path(image_temp).resolve())
+        paths = api.result_paths({'saved_images': [{'path': str(image)}]})
+        check(paths == [image.resolve()], 'result paths')
+        check(api.safe_download_path(str(image)).resolve() == image.resolve(), 'download path')
     try: api.validate_input_image('http://127.0.0.1:1/secret'); raise AssertionError('remote URL accepted')
     except ValueError: pass
-    check(api.safe_download_path(str(image)).resolve() == image.resolve(), 'download path')
     try: api.safe_download_path('/etc/passwd'); raise AssertionError('download path accepted')
     except ValueError: pass
-    check(set(json.loads((ROOT / 'profiles.json').read_text())['profiles'][0]) <= {'id', 'name', 'provider', 'endpoint', 'model', 'models', 'omit_model', 'api_key_env', 'agent_endpoint', 'baseUrl', 'base_url'}, 'profile schema')
+    check(set(json.loads((ROOT / 'profiles.json').read_text())['profiles'][0]) <= {'id', 'name', 'provider', 'endpoint', 'model', 'agent_model', 'models', 'omit_model', 'api_key_env', 'agent_endpoint', 'baseUrl', 'base_url'}, 'profile schema')
     with tempfile.TemporaryDirectory() as temp:
         old_config, old_work = connection.CONFIG, connection.WORK
         connection.CONFIG, connection.WORK = Path(temp) / 'connection.json', Path(temp)

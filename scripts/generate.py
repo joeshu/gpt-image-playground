@@ -340,7 +340,7 @@ def main():
 
     # Priority: task/config override, then environment endpoint; key is never read from files.
     api_key = os.environ.get(API_KEY_ENV) or os.environ.get(LEGACY_API_KEY_ENV)
-    if not api_key:
+    if not api_key and not args.dry_run:
         print(f"Missing {API_KEY_ENV} (legacy fallback: {LEGACY_API_KEY_ENV})", file=sys.stderr)
         sys.exit(3)
 
@@ -378,7 +378,7 @@ def main():
     if normalized_mask:
         payload["mask"] = normalized_mask
 
-    headers = build_headers(api_key)
+    headers = build_headers(api_key or "dry-run")
     stamp = now_stamp()
     prefix = f"{args.out_prefix}-{stamp}"
     workspace_dir = Path(args.workspace_dir)

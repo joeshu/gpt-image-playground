@@ -33,15 +33,22 @@ try:
     from image_store import list_images, set_favorite, delete_images, index_result, thumbnail
 except ImportError:
     from scripts.image_store import list_images, set_favorite, delete_images, index_result, thumbnail
+try:
+    from version import VERSION
+except ImportError:
+    from scripts.version import VERSION
+try:
+    from runtime_paths import allowed_roots, attachments_root, data_root, skill_root
+except ImportError:
+    from scripts.runtime_paths import allowed_roots, attachments_root, data_root, skill_root
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '2.7.0'
 API_MIN_CLIENT = '1.0.0'
-ROOT = Path('/var/minis/skills/gpt-image-playground')
-WORK = Path('/var/minis/workspace/gpt-image-playground')
-ATTACHMENTS = Path('/var/minis/attachments/gpt-image-playground')
+ROOT = skill_root()
+WORK = data_root()
+ATTACHMENTS = attachments_root()
 API_WORK = WORK / 'api'
 PLAYGROUND = ROOT / 'scripts' / 'playground.py'
 AGENT = ROOT / 'scripts' / 'agent.py'
@@ -49,7 +56,7 @@ PROFILES = ROOT / 'profiles.json'
 MODEL_CATALOG = ROOT / 'model_catalog.json'
 MAX_BODY = 12 * 1024 * 1024
 MAX_TIMEOUT = 1200
-ALLOWED_ROOTS = (Path('/var/minis/attachments'), Path('/var/minis/workspace'), Path('/var/minis/mounts'))
+ALLOWED_ROOTS = allowed_roots()
 
 
 def read_json(path):
@@ -86,7 +93,7 @@ def validate_input_image(value):
     except OSError as exc:
         raise ValueError(f'图片路径无效: {value}') from exc
     if not any(resolved == root or root in resolved.parents for root in ALLOWED_ROOTS):
-        raise ValueError('图片路径必须位于 /var/minis/attachments、workspace 或 mounts')
+        raise ValueError('图片路径必须位于技能目录、配置的数据目录或 GPT_IMAGE_PLAYGROUND_INPUT_ROOT 白名单')
     if not resolved.is_file():
         raise ValueError(f'图片不存在: {value}')
     return str(resolved)
@@ -158,7 +165,7 @@ def materialize_payload(value, temporary):
     return value
 
 
-def run_executor(command, payload, timeout):
+def run_executor(command, payload, timeout, event_file=None, event_callback=None):
     temporary = []
     payload = materialize_payload(payload, temporary)
     dry_run = bool(payload.pop('dry_run', False))
@@ -176,7 +183,37 @@ def run_executor(command, payload, timeout):
         if dry_run:
             command.append('--dry-run')
         env = os.environ.copy()
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=env)
+        if event_file:
+            env['GPT_AGENT_EVENTS_FILE'] = str(event_file)
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        output_chunks = []
+        error_chunks = []
+
+        def drain(stream, target):
+            for line in stream:
+                target.append(line)
+
+        stdout_thread = threading.Thread(target=drain, args=(process.stdout, output_chunks), daemon=True)
+        stderr_thread = threading.Thread(target=drain, args=(process.stderr, error_chunks), daemon=True)
+        stdout_thread.start(); stderr_thread.start()
+        event_position = 0
+        deadline = time.time() + timeout
+        while process.poll() is None:
+            if event_callback and event_file and Path(event_file).is_file():
+                event_position = stream_event_file(event_file, event_position, event_callback)
+            if time.time() >= deadline:
+                process.kill()
+                process.wait()
+                stdout_thread.join(timeout=2); stderr_thread.join(timeout=2)
+                stdout = ''.join(output_chunks); stderr = ''.join(error_chunks)
+                raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
+            time.sleep(0.05)
+        process.wait()
+        stdout_thread.join(timeout=2); stderr_thread.join(timeout=2)
+        stdout = ''.join(output_chunks); stderr = ''.join(error_chunks)
+        if event_callback and event_file and Path(event_file).is_file():
+            stream_event_file(event_file, event_position, event_callback)
+        completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     finally:
         if contains_data:
             request_path.unlink(missing_ok=True)
@@ -211,13 +248,13 @@ def run_batch(payload, timeout):
     return run_executor([sys.executable, str(PLAYGROUND), '--profile', profile or 'default'], payload, timeout)
 
 
-def run_agent(payload, timeout):
+def run_agent(payload, timeout, event_file=None, event_callback=None):
     profile = payload.get('profile') or 'default'
     profile_exists(profile)
     value = connection(next((x for x in read_json(PROFILES).get('profiles', []) if x.get('id') == profile), {}))
     if not value['configured']:
         raise ExecutorError('首次使用请先配置图片服务器地址和 API Key：POST /v1/setup 或运行 agent.py --setup', 428)
-    return run_executor([sys.executable, str(AGENT), '--profile', profile], payload, timeout)
+    return run_executor([sys.executable, str(AGENT), '--profile', profile], payload, timeout, event_file, event_callback)
 
 
 JOB_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix='gip-api-job')
@@ -232,6 +269,60 @@ def emit_job(job_id, event, data):
     with JOB_CONDITION:
         JOB_EVENTS.setdefault(job_id, []).append({'event': event, 'data': data, 'at': time.time()})
         JOB_CONDITION.notify_all()
+
+
+def stream_event_file(path, position, callback):
+    try:
+        with Path(path).open(encoding='utf-8') as stream:
+            stream.seek(position)
+            chunk = stream.read()
+            lines = chunk.splitlines(keepends=True)
+            consumed = 0
+            for line in lines:
+                if not line.endswith(('\n', '\r')):
+                    break
+                consumed += len(line)
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(item, dict) and item.get('event'):
+                    callback(item)
+            return position + consumed
+    except OSError:
+        return position
+
+
+def forward_agent_events(job_id, result):
+    """Forward persisted Agent JSONL events into the Job SSE stream."""
+    events_file = result.get('events_file') if isinstance(result, dict) else None
+    if not isinstance(events_file, str):
+        return 0
+    path = Path(events_file).expanduser()
+    try:
+        path = path.resolve()
+    except OSError:
+        return 0
+    if not (path.is_file() and (path == WORK or WORK in path.parents)):
+        return 0
+    count = 0
+    try:
+        with path.open(encoding='utf-8') as stream:
+            for line in stream:
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(item, dict) or not item.get('event'):
+                    continue
+                data = dict(item)
+                data['job_id'] = job_id
+                data['event_id'] = f'{job_id}-event-{count + 1}'
+                emit_job(job_id, item['event'], data)
+                count += 1
+    except OSError:
+        return count
+    return count
 
 
 def job_file(job_id):
@@ -267,7 +358,19 @@ def execute_job(job_id, kind, payload, timeout):
     try:
         if kind == 'generate': result = run_generate(payload, timeout)
         elif kind == 'batch': result = run_batch(payload, timeout)
-        else: result = run_agent(payload, timeout)
+        else:
+            event_file = API_WORK / 'agent-events' / f'{job_id}.jsonl'
+            event_file.parent.mkdir(parents=True, exist_ok=True)
+            sequence = [0]
+            def on_event(item):
+                sequence[0] += 1
+                data = dict(item)
+                data['job_id'] = job_id
+                data['event_id'] = f'{job_id}-event-{sequence[0]}'
+                emit_job(job_id, item['event'], data)
+            result = run_agent(payload, timeout, event_file, on_event)
+            if sequence[0] == 0:
+                forward_agent_events(job_id, result)
         with JOB_LOCK:
             job['status'] = 'completed'
             job['result'] = result
@@ -505,7 +608,7 @@ class Handler(BaseHTTPRequestHandler):
                 config = read_json(PROFILES)
                 profiles = []
                 for item in config.get('profiles', []):
-                    profiles.append({key: item.get(key) for key in ('id', 'name', 'provider', 'model', 'models', 'omit_model', 'agent_endpoint')})
+                    profiles.append({key: item.get(key) for key in ('id', 'name', 'provider', 'model', 'agent_model', 'models', 'omit_model', 'agent_endpoint')})
                 return self.send_json(200, {'default_profile': config.get('default_profile'), 'profiles': profiles})
             if parsed.path == '/v1/models':
                 config = read_json(PROFILES)

@@ -8,7 +8,12 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-WORK = Path('/var/minis/workspace/gpt-image-playground')
+try:
+    from runtime_paths import data_root
+except ImportError:
+    from scripts.runtime_paths import data_root
+
+WORK = data_root()
 CONFIG = WORK / 'connection.json'
 DEFAULT_MODEL = 'gpt-image-2'
 
@@ -105,6 +110,8 @@ def connection(profile=None):
     connections = value.get('connections') if isinstance(value.get('connections'), dict) else {}
     item = connections.get(profile_id) or value
     endpoint = os.environ.get('GPT_IMAGE_ENDPOINT') or item.get('endpoint') or profile.get('endpoint') or profile.get('baseUrl') or profile.get('base_url')
+    if endpoint and endpoint.rstrip('/').endswith('/v1'):
+        endpoint = endpoint.rstrip('/') + '/images/generations'
     key_env = profile.get('api_key_env', 'GPT_IMAGE_API_KEY')
     key = os.environ.get(key_env) or os.environ.get('GPT_IMAGE_API_KEY') or item.get('api_key')
     model = profile.get('model') or item.get('model') or DEFAULT_MODEL

@@ -10,6 +10,7 @@ import mimetypes
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 
 
@@ -19,6 +20,13 @@ class ProviderError(RuntimeError):
         self.provider = provider
         self.code = code
         self.returncode = returncode
+
+
+def _retryable_network_error(exc):
+    text = str(exc).lower()
+    return 'network request failed' in text or any(token in text for token in (
+        'sslzeroreturnerror', 'connection reset', 'connection aborted',
+        'remote end closed', 'temporarily unavailable', 'timed out'))
 
 
 @dataclass(frozen=True)
@@ -100,7 +108,8 @@ def _stream_request(url, api_key, payload, timeout, events_path, partial_dir, ta
             if partial and 'partial' in event.get('type', ''):
                 partial_dir.mkdir(parents=True, exist_ok=True)
                 index = event.get('partial_image_index', 0)
-                path = partial_dir / f'{task_id}-partial-{index}.{'jpg' if output_format in ('jpg', 'jpeg') else output_format}'
+                extension = 'jpg' if output_format in ('jpg', 'jpeg') else output_format
+                path = partial_dir / f'{task_id}-partial-{index}.{extension}'
                 path.write_bytes(base64.b64decode(partial)); event['partial_image_path'] = str(path)
             stream.write(json.dumps(event, ensure_ascii=False) + '\\n'); stream.flush()
             if event.get('data') or event.get('b64_json') or event.get('url'):
@@ -154,6 +163,12 @@ class NativeImagesProvider(Provider):
         g = self._module()
         task = context.task
         endpoint = task.get('endpoint') or env.get('GPT_IMAGE_ENDPOINT') or env.get('GPT_IMAGE_API_URL')
+        if endpoint and endpoint.rstrip('/').endswith('/v1'):
+            endpoint = endpoint.rstrip('/') + '/images/generations'
+        elif endpoint and not endpoint.rstrip('/').endswith(('/images/generations', '/images/edits')) and endpoint.startswith(('http://', 'https://')):
+            endpoint = endpoint.rstrip('/') + '/images/generations'
+        if not endpoint and context.dry_run:
+            endpoint = 'dry-run://images'
         key_name = task.get('api_key_env', 'GPT_IMAGE_API_KEY')
         api_key = env.get(key_name) or env.get('GPT_IMAGE_API_KEY')
         if not endpoint:
@@ -204,13 +219,38 @@ class NativeImagesProvider(Provider):
                     files.append(('mask', 'mask', content, mime))
                 response = _multipart_request(request_endpoint, api_key, fields, files, timeout)
             else:
-                if task.get('stream'):
-                    stream_payload = dict(payload); stream_payload['stream'] = True
-                    response = _stream_request(endpoint, api_key, stream_payload, timeout, context.workspace_dir / f'{context.task_id}-events.jsonl', context.output_dir, context.task_id, task.get('output_format', 'png'))
-                else:
-                    response = g.request_json('POST', endpoint, g.build_headers(api_key), payload=payload,
-                                              timeout=timeout, debug_prefix=request_path)
-            saved = g.decode_b64_images(response, context.output_dir, context.task_id, task.get('output_format', 'png'))
+                requested_n = max(1, min(int(task.get('n', 1)), 16))
+                responses = []
+                for index in range(requested_n):
+                    request_payload = dict(payload)
+                    request_payload['n'] = 1
+                    if task.get('stream'):
+                        stream_payload = dict(request_payload); stream_payload['stream'] = True
+                        responses.append(_stream_request(
+                            endpoint, api_key, stream_payload, timeout,
+                            context.workspace_dir / f'{context.task_id}-{index + 1}-events.jsonl',
+                            context.output_dir, f'{context.task_id}-{index + 1}',
+                            task.get('output_format', 'png')))
+                    else:
+                        last_error = None
+                        for attempt in range(max(0, min(int(task.get('network_retries', 2)), 3)) + 1):
+                            try:
+                                responses.append(g.request_json(
+                                    'POST', endpoint, g.build_headers(api_key), payload=request_payload,
+                                    timeout=timeout, debug_prefix=request_path if index == 0 and attempt == 0 else None))
+                                last_error = None
+                                break
+                            except Exception as exc:
+                                last_error = exc
+                                if attempt >= max(0, min(int(task.get('network_retries', 2)), 3)) or not _retryable_network_error(exc):
+                                    raise
+                                time.sleep(2 ** attempt)
+                        if last_error is not None:
+                            raise last_error
+                response = responses[0] if len(responses) == 1 else {'data': [item for value in responses for item in value.get('data', [])]}
+            saved = []
+            if isinstance(response, dict) and response.get('data'):
+                saved = g.decode_b64_images(response, context.output_dir, context.task_id, task.get('output_format', 'png'))
             if not saved:
                 raise ProviderError('Native Images Provider 返回中没有图片数据', provider=self.name, code='empty_result')
             result = {'status': 'completed', 'task_id': context.task_id, 'endpoint': request_endpoint,
@@ -257,11 +297,18 @@ class ProviderRegistry:
         try:
             return provider.run(context, env)
         except ProviderError as first_error:
-            if self.key(task) == 'images' and task.get('execution_mode', 'auto') == 'auto':
+            fallback_codes = {
+                'missing_endpoint', 'missing_provider', 'native_request_failed',
+                'invalid_response', 'empty_result',
+            }
+            if (self.key(task) == 'images'
+                    and task.get('execution_mode', 'auto') == 'auto'
+                    and first_error.code in fallback_codes):
                 fallback = self.script_images if self.script_images.script.is_file() else self.legacy_images
                 if fallback and fallback is not provider:
                     result = json.loads(fallback.run(context, env))
                     result['execution_mode'] = 'script'
+                    result['provider'] = fallback.name
                     result['fallback_from'] = provider.name
                     result['fallback_reason'] = first_error.code
                     return json.dumps(result, ensure_ascii=False)

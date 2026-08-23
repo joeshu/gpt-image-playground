@@ -10,17 +10,60 @@ Claude / Codex / Gemini / 自定义 Agent / CLI / Web
  Images API / Responses API / fal.ai / Custom Provider
 ```
 
-当前版本：`2.5.0`
+当前版本：`2.7.0`
+
+## 本地运行目录
+
+在仓库工作区运行时，生成图片默认保存到：
+
+```text
+outputs/gpt-image-playground/
+```
+
+运行数据和连接配置默认保存到：
+
+```text
+.monkeycode/runtime/gpt-image-playground/
+```
+
+平台托管环境可以通过 `GPT_IMAGE_PLAYGROUND_DATA` 和 `GPT_IMAGE_PLAYGROUND_ATTACHMENTS` 覆盖这两个目录。
+
+## 跨 Agent 调用
+
+Codex、Minis、Claude 和其他 Agent 使用统一入口：
+
+```sh
+python3 scripts/skill.py check
+python3 scripts/skill.py generate --profile default --prompt "生成一张产品海报"
+python3 scripts/skill.py agent --profile default --prompt "生成三张独立场景图"
+```
+
+入口使用 JSON stdout 契约，完整调用约定和能力说明均位于 `SKILL.md`。
 
 ## 适用场景
 
 - 文生图、参考图、多图融合、遮罩编辑
 - 批量生成、并发、失败隔离、网络重试
 - OpenAI Images API、Responses 图片 API、fal.ai、自定义 Provider
+- 自定义异步 Provider 支持 408/429/5xx 与网络错误恢复、指数退避和轮询事件记录
 - Responses Agent 多轮图片规划
 - 提供给其他 AI 工具的本地 REST/OpenAPI 图片服务
 - 任务历史、SQLite 索引、画廊、收藏、缩略图
 - 结果 ZIP、完整备份、备份恢复
+
+### 执行结果与 Agent 事件
+
+图片任务结果会统一提供 `requested_params`、`actual_params`、`attempts` 和 `timing.elapsed_ms` 字段。`execution_mode=auto` 仅在 Provider 缺少 endpoint、Provider 文件、响应解析失败、空结果或底层请求失败时回退到 Script；认证失败和输入参数错误会直接返回，避免重复请求。
+
+Agent 结果包含 `events_file`，文件采用 JSONL 格式记录 `round.started`、`tool.started`、`tool.completed`、`tool.failed` 和 `round.completed` 事件。每个工具事件携带 `tool_call_id`，生成图片结果携带 `task_id` 和 `tool_call_id`，便于 REST、UI 和恢复逻辑关联任务。
+
+异步调用 `/v1/agent` 时，API 会把同一批事件转发到 `/v1/jobs/{job_id}/events`。事件数据会增加 `job_id` 和稳定的 `event_id`，客户端可以使用 `event_id` 去重并按事件顺序更新进度。
+
+Agent 任务运行期间 API 会实时读取该 Job 专属的事件文件并推送 SSE，客户端可以在图片生成过程中更新进度；任务完成时会再执行一次尾部读取，确保最后事件进入队列。
+
+Agent 会在收到模型工具调用后先保存 `pending_tool_calls` 检查点，再执行本地图片任务。进程中断后使用 `--resume <session-path>` 会先恢复这些工具调用，完成后继续请求模型，避免恢复过程遗漏或重复整轮规划。
+
+每个工具完成后都会更新 `completed_tool_calls`，恢复时通过 `tool_call_id` 复用已完成结果，剩余工具继续执行。批量失败结果也会保留 `batch_id`、`batch_item_id` 和 `requested_params`。
 
 ## 快速开始
 
@@ -179,6 +222,351 @@ POST /v1/setup
   "model": "gpt-image-2"
 }
 ```
+
+## 使用文档与案例
+
+### 调用选择
+
+| 目标 | 入口 | 主要参数 |
+| --- | --- | --- |
+| 单图生成 | `scripts/playground.py` | `--prompt` |
+| 多张同提示词图片 | `scripts/playground.py` | `--n` |
+| 多个不同任务 | `scripts/playground.py` | `--batch` |
+| 参考图编辑 | `scripts/playground.py` | `--image` |
+| 局部编辑 | `scripts/playground.py` | `--image`、`--mask` |
+| 多轮规划 | `scripts/agent.py` | `--prompt` |
+| 给其他 Agent 调用 | `scripts/api_server.py` | REST/OpenAPI |
+| 检查请求不调用 API | CLI 或 Agent | `--dry-run` |
+
+所有命令从项目根目录运行。自动化 Agent 应读取 JSON stdout，图片从 `saved_images` 或 `images` 字段获取。
+
+### 配置案例
+
+交互式配置：
+
+```sh
+python3 scripts/playground.py --setup
+```
+
+从配置模板导入：
+
+```sh
+python3 scripts/playground.py --setup-json connection.example.json
+```
+
+通过环境变量配置 CI 或容器：
+
+```sh
+GPT_IMAGE_ENDPOINT="https://api.example.com/v1/images/generations" \
+GPT_IMAGE_API_KEY="用户自行提供的项目 Key" \
+python3 scripts/playground.py --prompt "CI dry run" --dry-run
+```
+
+查看配置状态：
+
+```sh
+python3 scripts/playground.py --connection-status
+```
+
+### 文生图案例
+
+宽幅电影海报：
+
+```sh
+python3 scripts/playground.py \
+  --profile default \
+  --prompt "电影海报，雨夜霓虹城市，主体位于右侧，左侧保留标题空间" \
+  --size 16:9 \
+  --quality high \
+  --output-format png
+```
+
+指定模型和数量：
+
+```sh
+python3 scripts/playground.py \
+  --model gpt-5.6-sol \
+  --n 4 \
+  --size 1:1 \
+  --prompt "四种不同构图的极简应用图标"
+```
+
+透明背景：
+
+```sh
+python3 scripts/playground.py \
+  --prompt "单个红色咖啡杯，产品摄影" \
+  --output-format png \
+  --transparent-background local
+```
+
+只检查最终请求：
+
+```sh
+python3 scripts/playground.py \
+  --model gpt-5.6-terra \
+  --size 4:3 \
+  --quality medium \
+  --prompt "检查模型和尺寸" \
+  --dry-run
+```
+
+### 参考图与遮罩案例
+
+改变参考图风格：
+
+```sh
+python3 scripts/playground.py \
+  --prompt "保持主体结构，改为复古胶片风格" \
+  --image /var/minis/attachments/source.png
+```
+
+融合多张参考图：
+
+```sh
+python3 scripts/playground.py \
+  --prompt "融合建筑参考图和配色参考图，生成统一产品场景" \
+  --image /var/minis/attachments/building.png \
+  --image /var/minis/attachments/palette.png
+```
+
+只修改遮罩区域：
+
+```sh
+python3 scripts/playground.py \
+  --prompt "只替换遮罩区域中的天空，其他区域保持不变" \
+  --image /var/minis/attachments/source.png \
+  --mask /var/minis/attachments/mask.png
+```
+
+主图和 mask 应保持相同尺寸。技能会执行工作尺寸预处理，并在结果中记录 `mask_metadata`。
+
+### 批量任务案例
+
+同一提示词生成多张图：
+
+```sh
+python3 scripts/playground.py \
+  --prompt "极简风格产品展示图" \
+  --n 4 \
+  --concurrency 2
+```
+
+不同提示词使用任务文件：
+
+```sh
+python3 scripts/playground.py \
+  --batch tasks.batch.sample.json \
+  --concurrency 3
+```
+
+任务文件：
+
+```json
+{
+  "size": "1:1",
+  "quality": "medium",
+  "tasks": [
+    {"prompt": "红色产品背景", "style": "product"},
+    {"prompt": "蓝色产品背景", "style": "product"}
+  ]
+}
+```
+
+批量结果包含 `batch_id`、`total`、`succeeded`、`failed` 和 `results`。每个子任务包含稳定的 `batch_item_id`，单个子任务失败时，其他子任务继续执行，后续重试可以按子任务 ID 精确关联。
+
+使用 `--retry-task <batch_id>` 重试部分失败批次时，成功子任务直接复用历史结果，失败子任务单独重新执行。批量结果会返回 `reused`、`retried` 和 `retry_of`，便于界面展示和审计。
+
+### Agent 案例
+
+多轮角色和场景生成：
+
+```sh
+python3 scripts/agent.py \
+  --profile default \
+  --max-rounds 6 \
+  --prompt "先设计一个橘猫侦探角色，再基于同一角色生成三张不同场景图"
+```
+
+恢复会话：
+
+```sh
+python3 scripts/agent.py \
+  --profile default \
+  --resume /var/minis/workspace/gpt-image-playground/agent-session.json
+```
+
+查看 Agent 历史：
+
+```sh
+python3 scripts/agent.py --history-list --history-limit 20
+python3 scripts/agent.py --history-get agent-20260823-064414-01cf59
+```
+
+Agent 结果示例：
+
+```json
+{
+  "status": "completed",
+  "conversation_id": "agent-...",
+  "text": "生成说明",
+  "images": [{"id": "image-1", "path": "/path/to/image.png"}],
+  "rounds": 3,
+  "session_path": "/path/to/session.json"
+}
+```
+
+Agent 图片引用：
+
+```text
+<ref id="base_character" />
+```
+
+Agent 会把工具参数中的 `images` 引用和 prompt 中的 `<ref id="..." />` 引用统一解析为本地图片输入。重复的图片 ID 会自动规范化为 `id`、`id-2` 等稳定标识，便于多轮会话继续引用。
+
+流式 Agent：
+
+```sh
+python3 scripts/agent.py \
+  --profile default \
+  --stream \
+  --prompt "先生成角色，再生成三张依赖角色的场景图"
+```
+
+流式 Responses 服务会返回文本增量和最终 response 快照；本地会话保存 `raw_responses`、`last_tool_calls`、生成图片 ID 与图片路径，恢复会话时继续使用现有上下文。
+
+### Responses 流式案例
+
+```sh
+python3 scripts/playground.py \
+  --profile default \
+  --api-mode responses \
+  --stream \
+  --prompt "生成一张电影海报"
+```
+
+流式结果包含 `events_file`、`partial_images`、`text` 和最终 `saved_images`。事件文件使用 JSONL 格式。
+
+### Profile 管理案例
+
+```sh
+python3 scripts/playground.py --validate-profiles
+python3 scripts/playground.py --import-profiles profiles.custom.async.example.json
+python3 scripts/playground.py --import-profiles profiles.custom.async.example.json --merge-profiles
+python3 scripts/playground.py --export-profiles /tmp/profiles-backup.json
+```
+
+模型选择优先级为 `task.model > --model > Profile.model`。`model` 和 `omit_model` 同时显式出现时会返回参数错误。
+
+### REST/OpenAPI 案例
+
+启动服务：
+
+```sh
+python3 scripts/api_server.py --host 127.0.0.1 --port 8765
+```
+
+健康检查：
+
+```sh
+curl http://127.0.0.1:8765/healthz
+```
+
+同步生成：
+
+```sh
+curl -X POST http://127.0.0.1:8765/v1/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"profile":"default","prompt":"白色背景极简产品图","size":"1:1","n":1}'
+```
+
+异步生成：
+
+```sh
+curl -X POST http://127.0.0.1:8765/v1/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"profile":"default","prompt":"生成四张概念图","n":4,"async":true}'
+```
+
+异步返回 `job_id`，查询状态和 SSE 事件：
+
+```sh
+curl http://127.0.0.1:8765/v1/jobs/job-...
+curl -N http://127.0.0.1:8765/v1/jobs/job-.../events
+```
+
+批量 REST 请求：
+
+```json
+{
+  "profile": "default",
+  "concurrency": 2,
+  "tasks": [
+    {"prompt": "红色背景产品图"},
+    {"prompt": "蓝色背景产品图"}
+  ]
+}
+```
+
+REST Agent 请求：
+
+```sh
+curl -X POST http://127.0.0.1:8765/v1/agent \
+  -H 'Content-Type: application/json' \
+  -d '{"profile":"default","prompt":"设计角色并生成三张场景图","async":true}'
+```
+
+### Provider 案例
+
+fal.ai Profile：
+
+```json
+{
+  "id": "fal-default",
+  "provider": "fal",
+  "model": "fal-ai/gpt-image-1",
+  "api_key_env": "FAL_KEY"
+}
+```
+
+自定义异步 Provider 的关键字段：
+
+```json
+{
+  "submit": {
+    "path": "images/generations",
+    "method": "POST",
+    "contentType": "json",
+    "body": {"prompt": "$prompt", "model": "$profile.model"},
+    "taskIdPath": "data.task_id"
+  },
+  "poll": {
+    "path": "tasks/{task_id}",
+    "statusPath": "data.status",
+    "successValues": ["completed"],
+    "failureValues": ["failed", "cancelled"],
+    "result": {"imageUrlPaths": ["data.result.images.*.url"]}
+  }
+}
+```
+
+异步 Provider 会对 408、425、429、5xx 和可恢复网络错误执行退避重试，并保存轮询事件诊断文件。
+
+### 历史、备份与失败处理
+
+```sh
+python3 scripts/playground.py --history-list --history-limit 20
+python3 scripts/playground.py --history-list --history-status failed
+python3 scripts/playground.py --retry-task gip-... --retry 2
+```
+
+导出备份：
+
+```sh
+curl -X POST http://127.0.0.1:8765/v1/backup/export
+```
+
+失败结果重点读取 `status`、`error_code`、`error` 和进程退出码。`partial_failed` 结果可继续使用成功子任务，并根据 `results` 定位失败项。
 
 ## Provider
 
@@ -355,7 +743,8 @@ python3 scripts/playground.py \
 模型由 Profile 和模型目录共同管理，不硬编码到单一 Provider：
 
 ```text
-默认模型：Profile.model
+图片默认模型：Profile.model
+Agent 默认模型：Profile.agent_model
 可选目录：Profile.models
 全局目录：model_catalog.json
 单次覆盖：--model / task.model / REST model
@@ -388,7 +777,19 @@ python3 scripts/playground.py \
 模型选择优先级：
 
 ```text
-任务 model > CLI --model > Profile.model
+图片任务 model > CLI --model > Profile.model
+
+Agent 请求使用 `Profile.agent_model`，默认值为 `gpt-5.6-terra`。Agent 的 Responses 规划模型与图片生成工具调用的 Images 模型分离：Agent 使用文本模型规划，工具内部继续使用 `Profile.model` 生成图片。
+
+Agent 执行模式：
+
+```text
+native  → Responses 模型直接使用原生 image_generation 能力返回图片
+script  → Agent 调用本地 generate_image / generate_image_batch 工具生成图片
+auto    → 可选混合编排模式，保留本地工具调用
+```
+
+当 Provider 已支持 Responses 原生生图时，Agent 默认使用 `native`。该模式不会注册或调用本地 `generate_image` 工具。需要混合编排时显式使用 `--execution-mode script` 或 `--execution-mode auto`。
 ```
 
 `omit_model` 只用于明确要求不发送模型字段的接口。它不能和显式模型同时指定。自定义模型 ID 允许使用，但必须是安全的单行模型标识；请求前会拒绝空格、控制字符和超长值。
@@ -421,3 +822,17 @@ python3 scripts/playground.py --execution-mode script --model gpt-image-2 --prom
 ```
 
 `native` 目前用于 Images API；Responses、fal.ai、Custom Provider 继续由各自 Provider 适配器执行。`script` 始终使用主技能内置的 `scripts/generate.py`，不依赖外部 `gpt-image-tool`。
+
+Agent 图片工具也支持执行模式：
+
+```sh
+python3 scripts/agent.py \
+  --execution-mode native \
+  --prompt "生成一张产品图"
+
+python3 scripts/agent.py \
+  --execution-mode script \
+  --prompt "生成一张产品图"
+```
+
+Agent 的 `generate_image` 和 `generate_image_batch` 默认继承 `--execution-mode`。工具调用中提供 `execution_mode` 时，只覆盖当前工具任务。`auto` 优先使用 Native，Native 失败后回退 Script，并在结果中返回 `fallback_from` 和 `fallback_reason`。

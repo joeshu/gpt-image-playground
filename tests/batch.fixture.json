@@ -1,0 +1,6 @@
+{
+  "tasks": [
+    {"prompt": "batch fixture one"},
+    {"prompt": "batch fixture two"}
+  ]
+}
