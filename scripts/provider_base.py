@@ -104,8 +104,11 @@ class NativeImagesProvider(Provider):
         for key in ('background', 'moderation', 'output_compression'):
             if task.get(key) is not None:
                 payload[key] = task[key]
-        if task.get('images'):
-            payload['images'] = g.normalize_image_inputs(task['images'])
+        if task.get('images') or task.get('image_urls'):
+            values = task.get('images') or task.get('image_urls')
+            payload['image_urls'] = g.normalize_image_inputs(values)
+        if task.get('mask'):
+            payload['mask'] = g.normalize_image_inputs([task['mask']])[0]
         request_path = context.workspace_dir / f'{context.task_id}-native-request.json'
         request_path.parent.mkdir(parents=True, exist_ok=True)
         request_path.write_text(json.dumps({**payload, 'endpoint': endpoint, 'mode': 'native'}, ensure_ascii=False, indent=2))
@@ -158,11 +161,15 @@ class ProviderRegistry:
         provider = self.resolve(task)
         try:
             return provider.run(context, env)
-        except ProviderError:
+        except ProviderError as first_error:
             if self.key(task) == 'images' and task.get('execution_mode', 'auto') == 'auto':
                 fallback = self.script_images if self.script_images.script.is_file() else self.legacy_images
                 if fallback and fallback is not provider:
-                    return fallback.run(context, env)
+                    result = json.loads(fallback.run(context, env))
+                    result['execution_mode'] = 'script'
+                    result['fallback_from'] = provider.name
+                    result['fallback_reason'] = first_error.code
+                    return json.dumps(result, ensure_ascii=False)
             raise
 
 

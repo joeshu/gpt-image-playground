@@ -476,6 +476,8 @@ def execute_one(run_task, current_id, dry_run, retries):
             stdout = registry.run(context, process_env)
             result = decorate_result(parse_json_output(stdout), current_id)
             result = postprocess_result(result, run_task)
+            result.setdefault('execution_mode', run_task.get('execution_mode', 'auto'))
+            result.setdefault('provider', registry.resolve(run_task).name)
             result['attempts'] = attempts
             result['actual_params'] = {key: run_task.get(key) for key in ('model', 'omit_model', 'size', 'quality', 'output_format', 'n', 'background', 'moderation', 'output_compression', 'api_mode') if run_task.get(key) is not None}
             result['revised_prompts'] = [item.get('revised_prompt') for item in result.get('saved_images', []) if item.get('revised_prompt')]

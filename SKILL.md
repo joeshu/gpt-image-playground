@@ -1,7 +1,7 @@
 ---
 name: gpt-image-playground
 description: 可被其他 AI 工具调用的图片生成编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job、Web 工作台、首次配置、历史、画廊、收藏、备份恢复和安全文件管理。用户要求生成/编辑/批量处理图片，或需要图片 Provider、Agent、API、Web 工作台时使用。
-version: 2.4.0
+version: 2.5.0
 ---
 
 # GPT Image Playground 技能
@@ -470,3 +470,7 @@ Dry Run 会检查最终请求文件，确认模型字段是否按选择真实发
 ## 双执行模式
 
 `execution_mode` 可选：`native`、`script`、`auto`。`native` 由 Images Provider 模块直接发 HTTP 请求；`script` 调用主技能自带 `scripts/generate.py`；`auto` 优先 native，失败后回退 script。Responses、fal.ai、Custom 仍通过各自适配器运行。
+
+## Native Provider 增强
+
+Native Images Provider 现在支持参考图和 mask 的 `image_urls`/`mask` 请求字段、Base64/URL 结果解析，并在 `auto` 回退到 Script 时返回 `fallback_from` 与 `fallback_reason`。结果还包含实际 `execution_mode` 和 `provider`，其他 AI 可以据此判断真实执行路径。
