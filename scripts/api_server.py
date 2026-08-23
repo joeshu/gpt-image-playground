@@ -12,6 +12,7 @@ import ipaddress
 import json
 import mimetypes
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -25,20 +26,21 @@ try:
 except ImportError:
     from scripts.connection import connection, setup_from_json, setup_status
 try:
-    from task_store import search as search_tasks
+    from task_store import search as search_tasks, record as record_task
 except ImportError:
-    from scripts.task_store import search as search_tasks
+    from scripts.task_store import search as search_tasks, record as record_task
 try:
-    from image_store import list_images, set_favorite, delete_images
+    from image_store import list_images, set_favorite, delete_images, index_result, thumbnail
 except ImportError:
-    from scripts.image_store import list_images, set_favorite, delete_images
+    from scripts.image_store import list_images, set_favorite, delete_images, index_result, thumbnail
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '1.6.0'
+VERSION = '1.7.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
+ATTACHMENTS = Path('/var/minis/attachments/gpt-image-playground')
 API_WORK = WORK / 'api'
 PLAYGROUND = ROOT / 'scripts' / 'playground.py'
 AGENT = ROOT / 'scripts' / 'agent.py'
@@ -365,15 +367,26 @@ def extract_manifest(zip_path):
         return manifest, names
 
 
-def restore_backup(zip_path):
-    manifest,names=extract_manifest(zip_path); restored=0
-    for item in manifest.get('gallery', []):
-        path=item.get('path')
-        if not isinstance(path,str): continue
-        image_name='images/'+Path(path).name
-        if image_name in names:
-            restored += 1
-    return {'status':'validated','version':manifest['version'],'tasks':len(manifest.get('history',[])),'images':restored}
+def restore_backup(zip_path, apply=False):
+    manifest,names=extract_manifest(zip_path); restored=0; tasks=0
+    if apply:
+        extract_root=API_WORK/'restore-staging'/uuid.uuid4().hex; extract_root.mkdir(parents=True,exist_ok=False)
+        with zipfile.ZipFile(zip_path) as z: z.extractall(extract_root)
+        for item in manifest.get('history',[]):
+            try: record_task(item); tasks += 1
+            except Exception: pass
+        for item in manifest.get('gallery',[]):
+            original=Path(item.get('path','')); source=extract_root/'images'/original.name
+            if source.is_file():
+                target=ATTACHMENTS/original.name; target.parent.mkdir(parents=True,exist_ok=True)
+                if not target.exists(): shutil.copy2(source,target)
+                item=dict(item); item['path']=str(target)
+                try: index_result({'task_id':item.get('task_id'),'saved_images':[item]}); restored += 1
+                except Exception: pass
+        shutil.rmtree(extract_root,ignore_errors=True)
+    else:
+        restored=sum(1 for item in manifest.get('gallery',[]) if 'images/'+Path(item.get('path','')).name in names)
+    return {'status':'restored' if apply else 'validated','version':manifest['version'],'tasks':tasks if apply else len(manifest.get('history',[])),'images':restored}
 
 
 def safe_download_path(raw_path, allow_zip=False):
@@ -401,7 +414,8 @@ OPENAPI = {
         '/v1/delete-images': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Deleted'}}}},
         '/v1/agent/branch': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Forked'}}}},
         '/v1/agent/regenerate': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Regeneration requested'}}}},
-        '/v1/backup/import': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Validated backup'}}}},
+        '/v1/backup/import': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Restored backup'}}}},
+        '/v1/thumbnails': {'get': {'responses': {'200': {'description': 'Thumbnail'}}}},
         '/v1/generate': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
         '/v1/batch': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
         '/v1/agent': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
@@ -493,6 +507,9 @@ class Handler(BaseHTTPRequestHandler):
                 job = get_job(job_id)
                 if not job: return self.send_json(404, {'error': 'job_not_found'})
                 return self.send_json(200, job)
+            if parsed.path == '/v1/thumbnails':
+                raw_path=parse_qs(parsed.query).get('path',[''])[0]; file_path=safe_download_path(raw_path)
+                thumb=Path(thumbnail(file_path)); raw=thumb.read_bytes(); self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Content-Length',str(len(raw))); self.send_header('Cache-Control','public, max-age=86400'); self.end_headers(); self.wfile.write(raw); return
             if parsed.path == '/v1/files':
                 raw_path = parse_qs(parsed.query).get('path', [''])[0]
                 if not raw_path or raw_path.startswith(('data:', 'http://', 'https://')):
@@ -555,7 +572,7 @@ class Handler(BaseHTTPRequestHandler):
                 archive=payload.get('path')
                 if not isinstance(archive,str): raise ValueError('缺少备份文件路径')
                 archive=safe_download_path(archive, allow_zip=True)
-                return self.send_json(200, restore_backup(archive))
+                return self.send_json(200, restore_backup(archive, bool(payload.get('apply', False))))
             if parsed.path == '/v1/delete-images':
                 ids=payload.get('image_ids') or ([payload.get('image_id')] if payload.get('image_id') else [])
                 return self.send_json(200, delete_images(ids, bool(payload.get('remove_files', False))))

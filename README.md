@@ -1,4 +1,4 @@
-# GPT Image Playground v1.6
+# GPT Image Playground v1.7
 
 ## 首次使用配置
 
@@ -183,3 +183,7 @@ GET /v1/history?q=海报&status=completed&profile=default
 ## v1.6 恢复与批量管理
 
 新增安全备份导入校验、批量图片管理、缩略图缓存、Agent session fork/重生成请求，以及对应 REST/OpenAPI 接口。备份导入先验证 manifest 和路径，不直接覆盖现有任务库。
+
+## v1.7 真正恢复与缩略图 API
+
+备份导入支持 `apply: true`，安全恢复任务和图片索引；缩略图通过 `/v1/thumbnails` 受控读取，Web 画廊和 Lightbox 继续使用鉴权访问。
