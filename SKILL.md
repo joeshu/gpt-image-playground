@@ -1,7 +1,7 @@
 ---
 name: gpt-image-playground
 description: 可被其他 AI 工具调用的图片生成编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job、Web 工作台、首次配置、历史、画廊、收藏、备份恢复和安全文件管理。用户要求生成/编辑/批量处理图片，或需要图片 Provider、Agent、API、Web 工作台时使用。
-version: 2.6.0
+version: 2.7.0
 ---
 
 # GPT Image Playground 技能
@@ -478,3 +478,7 @@ Native Images Provider 现在支持参考图和 mask 的 `image_urls`/`mask` 请
 ## Native Images Edit
 
 Native Images Provider 在检测到 `images`/`image_urls` 或 `mask` 时，自动将 `/images/generations` 切换为 `/images/edits`，使用 multipart/form-data 上传多个 `image[]` 和可选 `mask` 文件；无参考图时仍使用 JSON generations。支持本地路径、Data URL 和 HTTP 图片 URL。
+
+## Native Streaming
+
+Native Images Provider 支持任务中的 `stream: true`。它向 Provider 请求 SSE，将 `data:` 事件按 JSONL 写入 `<task_id>-events.jsonl`；包含 `partial_image_b64` 的事件会落盘为中间 PNG/JPEG，并在事件中记录 `partial_image_path`。最终仍返回标准 `saved_images`，同时返回 `events_file`，兼容不支持流式的旧调用方。

@@ -80,6 +80,37 @@ def _multipart_value(value):
     return path.read_bytes(), mime or 'application/octet-stream'
 
 
+def _stream_request(url, api_key, payload, timeout, events_path, partial_dir, task_id, output_format):
+    request = urllib.request.Request(url, data=json.dumps(payload).encode(), method='POST', headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json', 'Accept': 'text/event-stream'})
+    final = None
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(request, timeout=timeout) as response, events_path.open('w', encoding='utf-8') as stream:
+        for raw in response:
+            line = raw.decode('utf-8', errors='replace').strip()
+            if not line.startswith('data:'):
+                continue
+            text = line[5:].strip()
+            if not text or text == '[DONE]':
+                continue
+            try:
+                event = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            partial = event.get('partial_image_b64') or event.get('b64_json')
+            if partial and 'partial' in event.get('type', ''):
+                partial_dir.mkdir(parents=True, exist_ok=True)
+                index = event.get('partial_image_index', 0)
+                path = partial_dir / f'{task_id}-partial-{index}.{'jpg' if output_format in ('jpg', 'jpeg') else output_format}'
+                path.write_bytes(base64.b64decode(partial)); event['partial_image_path'] = str(path)
+            stream.write(json.dumps(event, ensure_ascii=False) + '\\n'); stream.flush()
+            if event.get('data') or event.get('b64_json') or event.get('url'):
+                if event.get('type', '').endswith('.completed') and isinstance(event.get('data'), list):
+                    final = {'data': event['data']}
+                else:
+                    final = event
+    return final or {}
+
+
 def _multipart_request(url, api_key, fields, files, timeout):
     boundary = '----gip-' + os.urandom(12).hex()
     chunks = []
@@ -173,13 +204,21 @@ class NativeImagesProvider(Provider):
                     files.append(('mask', 'mask', content, mime))
                 response = _multipart_request(request_endpoint, api_key, fields, files, timeout)
             else:
-                response = g.request_json('POST', endpoint, g.build_headers(api_key), payload=payload,
-                                          timeout=timeout, debug_prefix=request_path)
+                if task.get('stream'):
+                    stream_payload = dict(payload); stream_payload['stream'] = True
+                    response = _stream_request(endpoint, api_key, stream_payload, timeout, context.workspace_dir / f'{context.task_id}-events.jsonl', context.output_dir, context.task_id, task.get('output_format', 'png'))
+                else:
+                    response = g.request_json('POST', endpoint, g.build_headers(api_key), payload=payload,
+                                              timeout=timeout, debug_prefix=request_path)
             saved = g.decode_b64_images(response, context.output_dir, context.task_id, task.get('output_format', 'png'))
             if not saved:
                 raise ProviderError('Native Images Provider 返回中没有图片数据', provider=self.name, code='empty_result')
-            return json.dumps({'status': 'completed', 'task_id': context.task_id, 'endpoint': endpoint,
-                               'model': model, 'saved_images': saved, 'request_file': str(request_path)}, ensure_ascii=False)
+            result = {'status': 'completed', 'task_id': context.task_id, 'endpoint': request_endpoint,
+                      'model': model, 'saved_images': saved, 'request_file': str(request_path),
+                      'stream': bool(task.get('stream'))}
+            if task.get('stream'):
+                result['events_file'] = str(context.workspace_dir / f'{context.task_id}-events.jsonl')
+            return json.dumps(result, ensure_ascii=False)
         except ProviderError:
             raise
         except Exception as exc:

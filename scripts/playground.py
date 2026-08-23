@@ -91,7 +91,7 @@ def parse_json_output(stdout):
 def decorate_result(data, current_id):
     data = dict(data or {})
     data['task_id'] = data.get('task_id') or current_id
-    for key in ('request_file', 'initial_response_file', 'response_file', 'summary_path'):
+    for key in ('request_file', 'initial_response_file', 'response_file', 'summary_path', 'events_file'):
         if data.get(key):
             data[key + '_link'] = minis_link(data[key])
     for item in data.get('saved_images', []):
@@ -345,6 +345,7 @@ def build_task(source, cli, presets, current_id):
         'images': images,
         'api_mode': source.get('api_mode') or profile.get('api_mode') or 'images',
         'execution_mode': source.get('execution_mode') or cli.execution_mode or profile.get('execution_mode') or 'auto',
+        'stream': bool(source.get('stream') or getattr(cli, 'stream', False) or profile.get('stream', False)),
         'background': source.get('background') or source.get('transparent_background') or profile.get('background') or 'auto',
         'moderation': source.get('moderation') or cli.moderation or profile.get('moderation') or 'auto',
     }
@@ -581,7 +582,7 @@ def main():
     parser.add_argument('--background', choices=['auto', 'transparent', 'opaque'])
     parser.add_argument('--moderation', choices=['auto', 'low', 'medium', 'high'])
     parser.add_argument('--output-compression', type=int)
-    parser.add_argument('--model'); parser.add_argument('--omit-model', action='store_true'); parser.add_argument('--execution-mode', choices=['auto', 'native', 'script'], default='auto'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
+    parser.add_argument('--model'); parser.add_argument('--omit-model', action='store_true'); parser.add_argument('--execution-mode', choices=['auto', 'native', 'script'], default='auto'); parser.add_argument('--stream', action='store_true'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
     parser.add_argument('--poll-timeout', type=int, default=300)
     parser.add_argument('--style'); parser.add_argument('--endpoint'); parser.add_argument('--retry', type=int, default=0)
     parser.add_argument('--validate-profiles', action='store_true')
