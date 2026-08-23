@@ -56,54 +56,59 @@ def configured_from_environment(profile=None):
 
 
 def setup_status(profile=None):
-    value = read_config()
-    configured = bool(value and value.get('endpoint') and value.get('api_key'))
+    profile = profile or {}
+    value = read_config() or {}
+    profile_id = profile.get('connection_id') or profile.get('id') or 'default'
+    connections = value.get('connections') if isinstance(value.get('connections'), dict) else {}
+    item = connections.get(profile_id) or value
+    configured = bool(item.get('endpoint') and item.get('api_key'))
     if not configured and configured_from_environment(profile):
         configured = True
-    endpoint = os.environ.get('GPT_IMAGE_ENDPOINT') or (value or {}).get('endpoint') or (profile or {}).get('endpoint') or (profile or {}).get('baseUrl') or (profile or {}).get('base_url')
+    endpoint = os.environ.get('GPT_IMAGE_ENDPOINT') or item.get('endpoint') or profile.get('endpoint') or profile.get('baseUrl') or profile.get('base_url')
     parsed = urlparse(endpoint) if endpoint else None
     return {
         'configured': configured,
-        'source': 'file' if value and value.get('endpoint') and value.get('api_key') else ('environment' if configured else 'none'),
+        'source': 'file' if item.get('endpoint') and item.get('api_key') else ('environment' if configured else 'none'),
+        'profile': profile_id,
         'endpoint': endpoint,
         'host': parsed.netloc if parsed else '',
-        'model': (value or {}).get('model') or (profile or {}).get('model') or DEFAULT_MODEL,
+        'model': item.get('model') or profile.get('model') or DEFAULT_MODEL,
         'config_path': str(CONFIG),
     }
 
 
-def save_config(endpoint, api_key, model=DEFAULT_MODEL):
+def save_config(endpoint, api_key, model=DEFAULT_MODEL, profile_id='default'):
     endpoint = valid_endpoint(endpoint)
     api_key = valid_key(api_key)
-    if not isinstance(model, str) or not model.strip():
-        model = DEFAULT_MODEL
+    if not isinstance(model, str) or not model.strip(): model = DEFAULT_MODEL
     WORK.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(WORK, stat.S_IRWXU)
-    except OSError:
-        pass
-    fd, name = tempfile.mkstemp(prefix='connection-', suffix='.json', dir=str(WORK))
-    path = Path(name)
+    try: os.chmod(WORK, stat.S_IRWXU)
+    except OSError: pass
+    current = read_config() or {}
+    connections = current.get('connections') if isinstance(current.get('connections'), dict) else {}
+    connections[str(profile_id)] = {'endpoint': endpoint, 'api_key': api_key, 'model': model.strip()}
+    payload = {'version': 2, 'connections': connections}
+    if str(profile_id) == 'default':
+        payload.update({'endpoint': endpoint, 'api_key': api_key, 'model': model.strip()})
+    fd, name = tempfile.mkstemp(prefix='connection-', suffix='.json', dir=str(WORK)); path = Path(name)
     try:
         os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-            json.dump({'version': 1, 'endpoint': endpoint, 'api_key': api_key, 'model': model.strip()}, stream, ensure_ascii=False, indent=2)
-        os.replace(path, CONFIG)
-        try: os.chmod(CONFIG, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError: pass
-    finally:
-        path.unlink(missing_ok=True)
-    return {'configured': True, 'source': 'file', 'endpoint': endpoint, 'model': model.strip(), 'config_path': str(CONFIG)}
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream: json.dump(payload, stream, ensure_ascii=False, indent=2)
+        os.replace(path, CONFIG); os.chmod(CONFIG, stat.S_IRUSR | stat.S_IWUSR)
+    finally: path.unlink(missing_ok=True)
+    return {'configured': True, 'source': 'file', 'profile': str(profile_id), 'endpoint': endpoint, 'model': model.strip(), 'config_path': str(CONFIG)}
 
 
 def connection(profile=None):
-    profile = profile or {}
-    value = read_config() or {}
-    endpoint = os.environ.get('GPT_IMAGE_ENDPOINT') or value.get('endpoint') or profile.get('endpoint') or profile.get('baseUrl') or profile.get('base_url')
+    profile = profile or {}; value = read_config() or {}
+    profile_id = profile.get('connection_id') or profile.get('id') or 'default'
+    connections = value.get('connections') if isinstance(value.get('connections'), dict) else {}
+    item = connections.get(profile_id) or value
+    endpoint = os.environ.get('GPT_IMAGE_ENDPOINT') or item.get('endpoint') or profile.get('endpoint') or profile.get('baseUrl') or profile.get('base_url')
     key_env = profile.get('api_key_env', 'GPT_IMAGE_API_KEY')
-    key = os.environ.get(key_env) or os.environ.get('GPT_IMAGE_API_KEY') or value.get('api_key')
-    model = profile.get('model') or value.get('model') or DEFAULT_MODEL
-    return {'endpoint': endpoint, 'key': key, 'model': model, 'configured': bool(endpoint and key)}
+    key = os.environ.get(key_env) or os.environ.get('GPT_IMAGE_API_KEY') or item.get('api_key')
+    model = profile.get('model') or item.get('model') or DEFAULT_MODEL
+    return {'endpoint': endpoint, 'key': key, 'model': model, 'configured': bool(endpoint and key), 'profile': profile_id}
 
 
 def apply_environment(env, profile=None):
@@ -117,4 +122,4 @@ def apply_environment(env, profile=None):
 
 def setup_from_json(value):
     if not isinstance(value, dict): raise ValueError('配置请求必须是 JSON 对象')
-    return save_config(value.get('endpoint'), value.get('api_key'), value.get('model', DEFAULT_MODEL))
+    return save_config(value.get('endpoint'), value.get('api_key'), value.get('model', DEFAULT_MODEL), value.get('profile', value.get('profile_id', 'default')))

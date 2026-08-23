@@ -1,6 +1,6 @@
 ---
 name: gpt-image-playground
-version: 1.1.0
+version: 1.2.0
 description: GPT Image Playground 上层编排技能。基于 gpt-image-tool 底层执行器，支持自然语言文生图、图片编辑、多参考图融合、批量生成与风格预设。
 ---
 
@@ -40,7 +40,7 @@ description: GPT Image Playground 上层编排技能。基于 gpt-image-tool 底
 
 ## 当前版本能力
 
-当前版本：`1.1.0`。
+当前版本：`1.2.0`。
 
 ## 首次使用配置
 
@@ -379,3 +379,16 @@ python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --task task
 ## 输出规范
 
 底层摘要中的路径会转换为 `minis://attachments/...` 或 `minis://workspace/...` 链接。原始响应保留用于排查，但不得输出密钥和完整 data URL。
+
+## v1.2 Provider 与 API 兼容增强
+
+v1.2 新增：
+
+- Profile 独立连接配置，兼容旧版 `connection.json`
+- `api_mode: images|responses`
+- OpenAI Responses 图片生成 Provider
+- fal.ai Queue REST Provider
+- `actual_params` 和 `revised_prompts` 结果摘要
+- 异步 Job SSE：`GET /v1/jobs/{job_id}/events`
+- 原生 `background`、`moderation`、`quality: auto` 和 `size: auto` 参数
+- GitHub Actions Python 编译、API、CLI、Agent Dry Run 自动测试

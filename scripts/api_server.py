@@ -211,7 +211,15 @@ def run_agent(payload, timeout):
 JOB_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix='gip-api-job')
 JOB_LOCK = threading.Lock()
 JOBS = {}
+JOB_EVENTS = {}
+JOB_CONDITION = threading.Condition(JOB_LOCK)
 MAX_JOBS = 32
+
+
+def emit_job(job_id, event, data):
+    with JOB_CONDITION:
+        JOB_EVENTS.setdefault(job_id, []).append({'event': event, 'data': data, 'at': time.time()})
+        JOB_CONDITION.notify_all()
 
 
 def job_file(job_id):
@@ -243,6 +251,7 @@ def execute_job(job_id, kind, payload, timeout):
         job['status'] = 'running'
         job['started_at'] = time.time()
         save_job(job)
+    emit_job(job_id, 'running', {'status': 'running'})
     try:
         if kind == 'generate': result = run_generate(payload, timeout)
         elif kind == 'batch': result = run_batch(payload, timeout)
@@ -252,12 +261,14 @@ def execute_job(job_id, kind, payload, timeout):
             job['result'] = result
             job['finished_at'] = time.time()
             save_job(job)
+        emit_job(job_id, 'completed', {'status': 'completed', 'result': result})
     except Exception as exc:
         with JOB_LOCK:
             job['status'] = 'failed'
             job['error'] = str(exc)[-4000:]
             job['finished_at'] = time.time()
             save_job(job)
+        emit_job(job_id, 'failed', {'status': 'failed', 'error': str(exc)[-4000:]})
 
 
 def submit_job(kind, payload, timeout):
@@ -412,6 +423,19 @@ class Handler(BaseHTTPRequestHandler):
                 for item in config.get('profiles', []):
                     profiles.append({key: item.get(key) for key in ('id', 'name', 'provider', 'model', 'agent_endpoint')})
                 return self.send_json(200, {'default_profile': config.get('default_profile'), 'profiles': profiles})
+            if parsed.path.startswith('/v1/jobs/') and parsed.path.endswith('/events'):
+                job_id = parsed.path.split('/')[-2]
+                if not get_job(job_id): return self.send_json(404, {'error': 'job_not_found'})
+                self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.send_header('Cache-Control', 'no-cache'); self.send_header('Connection', 'close'); self.end_headers()
+                index = 0; deadline = time.time() + 300
+                while time.time() < deadline:
+                    with JOB_CONDITION:
+                        events = JOB_EVENTS.get(job_id, [])[index:]
+                        if not events: JOB_CONDITION.wait(timeout=2); events = JOB_EVENTS.get(job_id, [])[index:]
+                    for item in events:
+                        self.wfile.write(('event: '+item['event']+'\ndata: '+json.dumps(safe_json(item['data']),ensure_ascii=False)+'\n\n').encode()); self.wfile.flush(); index += 1
+                        if item['event'] in ('completed','failed'): return
+                return
             if parsed.path.startswith('/v1/jobs/'):
                 job_id = parsed.path.rsplit('/', 1)[-1]
                 job = get_job(job_id)

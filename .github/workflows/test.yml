@@ -1,0 +1,21 @@
+name: test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Python files
+        run: python -m compileall -q scripts tests
+      - name: Run API and connection tests
+        run: python tests/test_api.py
+      - name: Run CLI dry-run
+        run: python scripts/playground.py --prompt 'ci dry run' --profile default --dry-run
+      - name: Run Agent dry-run
+        run: python scripts/agent.py --prompt 'ci agent dry run' --profile default --dry-run

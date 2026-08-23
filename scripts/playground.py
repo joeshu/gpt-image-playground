@@ -22,6 +22,8 @@ ROOT = Path('/var/minis/skills/gpt-image-playground')
 FALLBACK_ROOT = Path('/var/minis/workspace/gpt-image-playground-skill')
 LOWER = Path('/var/minis/skills/gpt-image-tool/scripts/generate.py')
 CUSTOM = Path('/var/minis/skills/gpt-image-playground/scripts/custom_provider.py')
+RESPONSES = Path('/var/minis/skills/gpt-image-playground/scripts/responses_provider.py')
+FAL = Path('/var/minis/skills/gpt-image-playground/scripts/fal_provider.py')
 BASE = ROOT if ROOT.exists() else FALLBACK_ROOT
 PRESETS = BASE / 'presets.json'
 PROFILES = BASE / 'profiles.json'
@@ -265,22 +267,25 @@ def build_task(source, cli, presets, current_id):
     if not 1 <= n <= 16:
         raise ValueError('n 必须在 1 到 16 之间')
     quality = source.get('quality') or cli.quality
-    if quality not in ('low', 'medium', 'high'):
-        raise ValueError('quality 必须是 low、medium 或 high')
+    if quality not in ('low', 'medium', 'high', 'auto'): raise ValueError('quality 必须是 low、medium、high 或 auto')
     output_format = source.get('output_format') or cli.output_format
-    if output_format not in ('png', 'webp', 'jpeg', 'jpg'):
-        raise ValueError('output_format 必须是 png、webp 或 jpeg')
+    if output_format not in ('png', 'webp', 'jpeg', 'jpg'): raise ValueError('output_format 必须是 png、webp 或 jpeg')
+    size = source.get('size') or cli.size
+    if size == 'auto': size = 'auto'
     result = {
         'prompt': prompt,
         'profile': profile.get('id'),
         'provider': profile.get('provider', 'openai-compatible'),
         'api_key_env': profile.get('api_key_env', 'GPT_IMAGE_API_KEY'),
-        'size': source.get('size') or cli.size,
+        'size': size,
         'quality': quality,
         'output_format': 'jpeg' if output_format == 'jpg' else output_format,
         'model': source.get('model') or cli.model or profile.get('model') or 'gpt-image-2',
         'n': n,
         'images': images,
+        'api_mode': source.get('api_mode') or profile.get('api_mode') or 'images',
+        'background': source.get('background') or source.get('transparent_background') or profile.get('background') or 'auto',
+        'moderation': source.get('moderation') or profile.get('moderation') or 'auto',
     }
     if mask:
         result['mask'] = mask
@@ -393,7 +398,7 @@ def execute_one(run_task, current_id, dry_run, retries):
     WORK.mkdir(parents=True, exist_ok=True)
     task_path = WORK / f'{current_id}-orchestrator-task.json'
     write_json(task_path, run_task)
-    runner = CUSTOM if run_task.get('provider') not in ('openai', 'openai-compatible', 'fal', 'fal.ai', None) else LOWER
+    runner = RESPONSES if run_task.get('api_mode') == 'responses' else (FAL if run_task.get('provider') in ('fal', 'fal.ai') else (CUSTOM if run_task.get('provider') not in ('openai', 'openai-compatible', None) else LOWER))
     command = [sys.executable, str(runner), '--task', str(task_path), '--out-prefix', current_id,
                '--attachments-dir', str(OUT), '--workspace-dir', str(WORK)]
     process_env = apply_environment(os.environ.copy(), run_task)
@@ -412,6 +417,8 @@ def execute_one(run_task, current_id, dry_run, retries):
             result = decorate_result(parse_json_output(completed.stdout), current_id)
             result = postprocess_result(result, run_task)
             result['attempts'] = attempts
+            result['actual_params'] = {key: run_task.get(key) for key in ('model', 'size', 'quality', 'output_format', 'n', 'background', 'moderation', 'api_mode') if run_task.get(key) is not None}
+            result['revised_prompts'] = [item.get('revised_prompt') for item in result.get('saved_images', []) if item.get('revised_prompt')]
             result['status'] = 'dry_run' if dry_run else 'completed'
             return result
         if not should_retry(completed.returncode, completed.stderr) or attempts > retries:

@@ -1,263 +1,160 @@
-# GPT Image Playground
+# GPT Image Playground v1.2
 
-一个可移植的 GPT Image 图片生成编排技能。
+## 首次使用配置
 
-它把图片生成拆成四层：
-
-```text
-CLI / Web 工作台 / 其他 AI 工具
-                ↓
-        REST API / Responses Agent
-                ↓
-       gpt-image-playground 编排器
-                ↓
- gpt-image-tool / OpenAI-compatible / 自定义 Provider
-```
-
-项目适合在 Minis、iSH、普通 Linux 或服务器环境中运行。底层执行器使用 Python 标准库和已有的 `gpt-image-tool`；Web API 使用 Python 标准库，不依赖 React、Node 或第三方 Web 框架。
-
-## 特性
-
-- 文生图、单图编辑、多参考图融合
-- 遮罩编辑与本地透明背景后处理
-- 批量任务、并发、失败隔离、网络错误重试
-- OpenAI-compatible、声明式同步 Provider、异步 task_id Provider
-- Responses Agent 多轮工具调用
-- 本地 REST API 与 OpenAPI 3.0.3
-- 异步 Job、状态持久化、服务重启恢复
-- 单页 Web 工作台
-- 图片预览、ZIP 导出、历史查询
-- 首次使用配置向导
-- API Key 本地权限 600 保存，且不进入任务、日志、响应或浏览器 localStorage
-- 远程监听必须配置 Bearer Token
-- API 图片输入限制在白名单目录，拒绝远程图片 URL，降低 SSRF 风险
-
-## 快速开始
-
-### 1. 准备底层执行器
-
-本技能默认调用：
-
-```text
-/var/minis/skills/gpt-image-tool/scripts/generate.py
-```
-
-在其他 Linux 环境中，可将该路径改为兼容的图片执行器，或调整 `scripts/playground.py` 中的 `LOWER` 配置。
-
-### 2. 首次配置
-
-没有环境变量时，交互式填写：
+首次没有环境变量时，运行：
 
 ```sh
-python3 scripts/playground.py --setup
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --setup
 ```
 
-也可以导入 JSON：
+或导入标准 JSON：
 
 ```sh
-python3 scripts/playground.py --setup-json connection.example.json
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py \
+  --setup-json /var/minis/skills/gpt-image-playground/connection.example.json
 ```
 
-真实配置保存到：
+配置文件位于：
 
 ```text
 /var/minis/workspace/gpt-image-playground/connection.json
 ```
 
-文件权限为 `600`。仓库中的 `connection.example.json` 只有占位内容，不能直接作为生产密钥文件提交。
+权限为 `600`。API Key 不进入任务、日志、历史、OpenAPI 或浏览器 localStorage。
 
-检查配置：
-
-```sh
-python3 scripts/playground.py --connection-status
-```
-
-服务器部署或 CI 可以使用环境变量：
+API 配置接口：
 
 ```text
-GPT_IMAGE_ENDPOINT
-GPT_IMAGE_API_KEY
+GET  /v1/setup/status
+POST /v1/setup
+GET  /openapi.json
 ```
 
-环境变量优先于本地配置。
 
-### 3. CLI 生成
+## 本地 REST API
+
+启动：
 
 ```sh
-python3 scripts/playground.py \
-  --profile aiwanwu \
-  --prompt '电影感的雪山湖泊' \
-  --style cinematic \
-  --size 16:9
+python3 /var/minis/skills/gpt-image-playground/scripts/api_server.py \
+  --host 127.0.0.1 --port 8765
 ```
 
-Dry Run：
-
-```sh
-python3 scripts/playground.py \
-  --prompt '测试任务' \
-  --profile aiwanwu \
-  --dry-run
-```
-
-### 4. 启动 Web 工作台
-
-```sh
-python3 scripts/api_server.py --host 127.0.0.1 --port 8765
-```
-
-打开：
-
-```text
-http://127.0.0.1:8765/
-```
-
-首次未配置时，页面会显示服务器地址和 API Key 表单。API Key 只提交到服务端，不保存到浏览器。
-
-## REST API
-
-完整接口定义：
-
-```http
-GET /openapi.json
-```
-
-主要接口：
-
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| GET | `/healthz` | 健康检查 |
-| GET | `/v1/setup/status` | 脱敏配置状态 |
-| POST | `/v1/setup` | 首次保存服务器和 API Key |
-| GET | `/v1/profiles` | 脱敏 Profile 列表 |
-| GET | `/v1/history` | 历史任务 |
-| POST | `/v1/generate` | 单图生成 |
-| POST | `/v1/batch` | 批量生成 |
-| POST | `/v1/agent` | Agent 任务 |
-| GET | `/v1/jobs/{job_id}` | Job 状态 |
-| GET | `/v1/files` | 受控图片读取 |
-| POST | `/v1/export-zip` | 导出结果 ZIP |
-| GET | `/v1/download-zip` | 下载 ZIP |
-
-首次配置：
-
-```sh
-curl -X POST http://127.0.0.1:8765/v1/setup \
-  -H 'Content-Type: application/json' \
-  -d '{"endpoint":"https://api.example.com/v1/images/generations","api_key":"首次填写","model":"gpt-image-2"}'
-```
-
-生成任务：
+同步生成：
 
 ```sh
 curl -X POST http://127.0.0.1:8765/v1/generate \
   -H 'Content-Type: application/json' \
-  -d '{"prompt":"一张电影海报","profile":"default","async":true}'
+  -d '{"prompt":"电影海报","profile":"aiwanwu","dry_run":true}'
 ```
 
-异步请求返回 `202` 和 `job_id`，使用 `/v1/jobs/{job_id}` 轮询。
-
-如果服务监听非 localhost 地址，必须设置：
-
-```text
-GPT_PLAYGROUND_API_TOKEN
-```
-
-客户端发送：
-
-```http
-Authorization: Bearer <token>
-```
-
-## Agent
+异步 Job：
 
 ```sh
-python3 scripts/agent.py \
+curl -X POST http://127.0.0.1:8765/v1/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"长任务","profile":"aiwanwu","async":true}'
+
+curl http://127.0.0.1:8765/v1/jobs/<job-id>
+```
+
+接口还提供 `/healthz`、`/v1/profiles`、`/v1/history`、`/v1/batch` 和 `/v1/agent`。默认只绑定 localhost；设置 `GPT_PLAYGROUND_API_TOKEN` 后启用 Bearer Token 鉴权。API 不接受客户端传入密钥或 endpoint，图片路径限制在 Minis 共享目录。
+
+
+## Responses Agent
+
+```sh
+python3 /var/minis/skills/gpt-image-playground/scripts/agent.py \
   --profile aiwanwu \
-  --prompt '先生成角色设定，再生成三张不同场景图'
+  --prompt '生成一张角色设定图，再基于它生成三张场景图'
 ```
 
-支持工具：
+Agent 通过 Responses API 规划，调用 `generate_image`、`generate_image_batch` 和 `continue_generation`，实际图片生成仍回到主 Playground 执行器。最多 8 轮、每批最多 16 张、批量最多 4 路并发。
 
-- `generate_image`
-- `generate_image_batch`
-- `continue_generation`
+Responses endpoint 优先级：`--endpoint` → `GPT_AGENT_ENDPOINT` → Profile `agent_endpoint` → Profile `baseUrl/responses`。
 
-支持会话保存、恢复、图片引用、批量失败隔离和请求重试。
-
-## 自定义 Provider
-
-示例：
-
-```text
-profiles.custom.sync.example.json
-profiles.custom.async.example.json
-```
-
-支持：
-
-- JSON 请求
-- multipart 请求
-- 输入图片和 mask
-- Base64 或 URL 图片响应
-- 异步 task_id
-- 状态轮询
-- 响应路径映射
-
-验证配置：
+Dry-run 不需要 API Key：
 
 ```sh
-python3 scripts/playground.py --validate-profiles
+python3 /var/minis/skills/gpt-image-playground/scripts/agent.py \
+  --profile aiwanwu --prompt '生成电影海报' --dry-run
 ```
 
-## 测试
+Agent 记录保存在 `/var/minis/workspace/gpt-image-playground/agent-history.jsonl`。
 
-运行 API 和连接配置测试：
+查询 Agent 历史：
 
 ```sh
-python3 tests/test_api.py
+python3 /var/minis/skills/gpt-image-playground/scripts/agent.py --history-list --history-limit 20
+python3 /var/minis/skills/gpt-image-playground/scripts/agent.py --history-get <conversation-id>
 ```
 
-运行 Python 编译检查：
+Agent 请求可使用 `--agent-retry 2` 重试网络错误、超时、429 和 5xx。批量工具采用失败隔离，单个失败不会影响其他结果；图片引用支持已生成图片 ID、`ref:id` 和 `<ref id="..." />`。
+
+
+## Web 工作台
+
+启动 API 后打开 `http://127.0.0.1:8765/`：
 
 ```sh
-python3 -m compileall -q scripts tests
+python3 /var/minis/skills/gpt-image-playground/scripts/api_server.py \
+  --host 127.0.0.1 --port 8765
 ```
 
-项目还包含用于 Provider 和 Agent 的 Mock 服务，位于开发工作副本中；生产仓库不依赖外部 API 才能运行 Dry Run 和基础测试。
+支持单图、批量、Agent、参考图、遮罩、异步 Job、结果预览和历史列表。浏览器上传图片不会写入 API 请求日志，服务端临时文件执行后自动删除。
 
-## 目录结构
 
-```text
-.
-├── SKILL.md
-├── README.md
-├── connection.example.json
-├── profiles.json
-├── presets.json
-├── scripts/
-│   ├── agent.py
-│   ├── api_server.py
-│   ├── connection.py
-│   ├── custom_provider.py
-│   ├── image_ops.py
-│   └── playground.py
-├── tests/
-│   └── test_api.py
-└── web/
-    └── index.html
+
+## 常用命令
+
+```sh
+# 文生图
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py \
+  --prompt '电影感的雪山湖泊' --style cinematic --size 16:9
+
+# 批量生成
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py \
+  --batch /var/minis/skills/gpt-image-playground/tasks.batch.sample.json \
+  --concurrency 2 --retry 1
+
+# 遮罩编辑
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py \
+  --prompt '只修改选区中的物体' --image source.png --mask mask.png
 ```
 
-## 安全约定
+## Profile 管理
 
-- 不把真实 API Key 写入 `profiles.json`、任务 JSON、Shell 参数或代码仓库
-- 不提交 `connection.json`
-- 不提交生成图片、历史响应、临时文件和 Python 缓存
-- 远程监听必须启用 Bearer Token
-- API 只接受白名单本地图片或浏览器 Data URL
-- `/v1/setup/status` 只返回 endpoint、host、model 和配置来源，不返回 Key
-- 生产环境建议使用环境变量或系统 Secret 管理器
+```sh
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --validate-profiles
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --test-profile aiwanwu
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --export-profiles backup.json
+python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --import-profiles profiles.json --merge-profiles
+```
 
-## 许可证
+`--test-profile` 只做 HEAD 连通性探测，不发起图片生成。Profile 不保存 API Key，密钥只从 `api_key_env` 指定的环境变量读取。
 
-本项目当前未指定开源许可证，默认按私有项目使用。仓库可见性由 GitHub 私有仓库设置控制。
+## 自定义供应商
+
+- `profiles.custom.sync.example.json`：同步 JSON、multipart 编辑和遮罩
+- `profiles.custom.async.example.json`：异步 task ID、状态轮询、URL/Base64 结果映射
+- `scripts/custom_provider.py`：声明式 Provider 执行器
+
+支持模板变量：`$prompt`、`$profile.model`、`$params.*`、`$inputImages.dataUrls`、`$mask.dataUrl`。
+
+## 产物
+
+- 图片：`/var/minis/attachments/gpt-image-playground/`
+- 任务、响应、诊断：`/var/minis/workspace/gpt-image-playground/`
+- 历史：`/var/minis/workspace/gpt-image-playground/history.jsonl`
+
+不要把 API Key 写入 Profile、任务 JSON、Shell 参数或对话。
+
+## v1.2 新增
+
+- 多 Profile 独立连接和 Secret
+- Images / Responses 双 API 模式
+- fal.ai Queue Provider
+- Job SSE 事件流
+- 实际参数和 revised prompt 摘要
+- GitHub Actions 自动测试
