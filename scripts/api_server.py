@@ -54,7 +54,8 @@ PLAYGROUND = ROOT / 'scripts' / 'playground.py'
 AGENT = ROOT / 'scripts' / 'agent.py'
 PROFILES = ROOT / 'profiles.json'
 MODEL_CATALOG = ROOT / 'model_catalog.json'
-MAX_BODY = 12 * 1024 * 1024
+# JSON Data URLs expand binary uploads by roughly 4/3; keep headroom for 100 MB ZIP backups.
+MAX_BODY = 140 * 1024 * 1024
 MAX_TIMEOUT = 1200
 ALLOWED_ROOTS = allowed_roots()
 
@@ -693,6 +694,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, regenerate_session(source,payload.get('target_path'),payload.get('round_index')))
             if parsed.path == '/v1/setup':
                 return self.send_json(200, setup_from_json(payload))
+            if parsed.path == '/v1/backup/upload':
+                encoded = payload.get('data')
+                name = str(payload.get('name') or 'uploaded-backup.zip')
+                if not isinstance(encoded, str) or not encoded.startswith('data:application/zip;base64,'):
+                    raise ValueError('备份必须是 application/zip Data URL')
+                raw = base64.b64decode(encoded.split(',', 1)[1], validate=True)
+                if len(raw) > 100 * 1024 * 1024: raise ValueError('备份文件不能超过 100 MB')
+                API_WORK.mkdir(parents=True, exist_ok=True)
+                target = API_WORK / ('upload-' + uuid.uuid4().hex[:10] + '-' + Path(name).name)
+                target.write_bytes(raw)
+                extract_manifest(target)
+                return self.send_json(200, {'status':'uploaded','path':str(target),'size':len(raw)})
             if parsed.path == '/v1/backup/import':
                 archive=payload.get('path')
                 if not isinstance(archive,str): raise ValueError('缺少备份文件路径')
