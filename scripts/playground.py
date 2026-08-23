@@ -474,6 +474,7 @@ def run_batch(source, cli, presets, dry_run):
         raise ValueError('批量任务必须是非空 tasks 数组')
     if len(items) > 100:
         raise ValueError('单次批量任务最多 100 个子任务')
+    effective_dry_run = bool(dry_run or (isinstance(source, dict) and source.get('dry_run')) or any(isinstance(item, dict) and item.get('dry_run') for item in items))
     parent_id = task_id('gip-batch')
     defaults = {k: v for k, v in source.items() if k != 'tasks'} if isinstance(source, dict) else {}
     jobs = []
@@ -486,7 +487,7 @@ def run_batch(source, cli, presets, dry_run):
     workers = min(max(1, cli.concurrency), MAX_CONCURRENCY, len(jobs))
     results = [None] * len(jobs)
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        pending = {pool.submit(execute_one, run_task, child_id, dry_run, cli.retry): index
+        pending = {pool.submit(execute_one, run_task, child_id, effective_dry_run, cli.retry): index
                    for index, (child_id, run_task) in enumerate(jobs)}
         for future in concurrent.futures.as_completed(pending):
             results[pending[future]] = future.result()

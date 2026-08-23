@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '2.0.0'
+VERSION = '2.0.1'
 API_MIN_CLIENT = '1.0.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
@@ -438,7 +438,7 @@ OPENAPI = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'GPTImagePlaygroundAPI/1.9.0'
+    server_version = 'GPTImagePlaygroundAPI/2.0.1'
 
     def log_message(self, fmt, *args):
         sys.stderr.write('[playground-api] ' + (fmt % args) + '\n')
@@ -557,9 +557,9 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == '/v1/history':
                 params = parse_qs(parsed.query); limit = int(params.get('limit', ['20'])[0])
                 return self.send_json(200, {'items': search_tasks(params.get('q', [''])[0], params.get('status', [''])[0], params.get('profile', [''])[0], limit)})
-            return self.send_json(404, {'error': 'not_found'})
+            return self.send_error(404, 'not_found', '接口不存在')
         except Exception as exc:
-            return self.send_json(400, {'error': str(exc)})
+            return self.send_error(400, 'invalid_json', str(exc))
 
     def read_body(self):
         length = int(self.headers.get('Content-Length', '0'))
@@ -612,7 +612,7 @@ class Handler(BaseHTTPRequestHandler):
                     payload['images'] = [validate_input_image(item) for item in payload['images']]
                 kind, clean = 'agent', normalize_task(payload)
             else:
-                return self.send_json(404, {'error': 'not_found'})
+                return self.send_error(404, 'not_found', '接口不存在')
             if async_job:
                 return self.send_json(202, submit_job(kind, clean, timeout))
             if kind == 'generate': result = run_generate(clean, timeout)
@@ -620,7 +620,7 @@ class Handler(BaseHTTPRequestHandler):
             else: result = run_agent(clean, timeout)
             return self.send_json(200, result)
         except ExecutorError as exc:
-            return self.send_json(exc.status, {'error': str(exc)})
+            return self.send_error(exc.status, 'executor_error', str(exc))
         except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
             status = 504 if isinstance(exc, subprocess.TimeoutExpired) else 422
             return self.send_error(status, 'request_invalid' if status == 422 else 'executor_timeout', str(exc))

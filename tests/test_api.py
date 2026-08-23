@@ -17,7 +17,7 @@ def check(condition, message):
 
 
 def main():
-    check(api.VERSION == '2.0.0', 'version')
+    check(api.VERSION == '2.0.1', 'version')
     from task_store import record, search
     with tempfile.TemporaryDirectory() as temp:
         db = Path(temp) / 'tasks.sqlite3'; record({'task_id':'t1','created_at':'2026','status':'completed','prompt':'lake','profile':'p'}, db); check(search('lake', path=db)[0]['task_id'] == 't1', 'task store')
