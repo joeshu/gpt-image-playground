@@ -10,7 +10,7 @@ Claude / Codex / Gemini / 自定义 Agent / CLI / Web
  Images API / Responses API / fal.ai / Custom Provider
 ```
 
-当前版本：`1.9.0`
+当前版本：`2.0.0`
 
 ## 适用场景
 

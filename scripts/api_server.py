@@ -37,7 +37,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '1.9.0'
+VERSION = '2.0.0'
+API_MIN_CLIENT = '1.0.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
 ATTACHMENTS = Path('/var/minis/attachments/gpt-image-playground')
@@ -411,7 +412,7 @@ def safe_download_path(raw_path, allow_zip=False):
 OPENAPI = {
     'openapi': '3.0.3', 'info': {'title': 'GPT Image Playground API', 'version': VERSION},
     'paths': {
-        '/healthz': {'get': {'responses': {'200': {'description': 'Health'}}}},
+        '/v1/version': {'get': {'responses': {'200': {'description': 'Version compatibility'}}}},
         '/v1/profiles': {'get': {'responses': {'200': {'description': 'Profiles'}}}},
         '/v1/history': {'get': {'responses': {'200': {'description': 'History'}}}},
         '/v1/setup': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Configured'}}}},
@@ -423,8 +424,10 @@ OPENAPI = {
         '/v1/delete-images': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Deleted'}}}},
         '/v1/agent/branch': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Forked'}}}},
         '/v1/agent/regenerate': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Regeneration requested'}}}},
-        '/v1/backup/import': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Restored backup'}}}},
         '/v1/thumbnails': {'get': {'responses': {'200': {'description': 'Thumbnail'}}}},
+        '/v1/backup/import': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Restored backup'}}}},
+        '/v1/agent/branch': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Forked'}}}},
+        '/v1/agent/regenerate': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Regeneration requested'}}}},
         '/v1/generate': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
         '/v1/batch': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
         '/v1/agent': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
@@ -439,6 +442,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         sys.stderr.write('[playground-api] ' + (fmt % args) + '\n')
+
+    def send_error(self, status, code, message, details=None):
+        return self.send_json(status, {'error': {'code': code, 'message': message, 'details': details or {}}})
 
     def send_json(self, status, value):
         raw = json.dumps(safe_json(value), ensure_ascii=False).encode('utf-8')
@@ -468,8 +474,8 @@ class Handler(BaseHTTPRequestHandler):
         candidate = (ROOT / 'web' / relative).resolve()
         web_root = (ROOT / 'web').resolve()
         if web_root not in candidate.parents and candidate != web_root:
-            return self.send_json(403, {'error': 'forbidden'})
-        if not candidate.is_file(): return self.send_json(404, {'error': 'not_found'})
+            return self.send_error(403, 'forbidden', '禁止访问')
+        if not candidate.is_file(): return self.send_error(404, 'not_found', '资源不存在')
         raw = candidate.read_bytes()
         content_type = mimetypes.guess_type(candidate.name)[0] or 'application/octet-stream'
         self.send_response(200)
@@ -482,8 +488,10 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path in ('/', '/index.html') or parsed.path.startswith('/web/'):
             return self.serve_web(parsed.path)
-        if not self.authorized(): return self.send_json(401, {'error': 'unauthorized'})
+        if not self.authorized(): return self.send_error(401, 'unauthorized', '需要 Bearer Token')
         try:
+            if parsed.path == '/v1/version':
+                return self.send_json(200, {'api_version': VERSION, 'skill_version': VERSION, 'min_client_version': API_MIN_CLIENT, 'compatibility': 'v1'})
             if parsed.path == '/v1/setup/status':
                 profile_id = parse_qs(parsed.query).get('profile', ['default'])[0]
                 config = read_json(PROFILES); profile = next((x for x in config.get('profiles', []) if x.get('id') == profile_id), {'id': profile_id})
@@ -500,7 +508,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, {'default_profile': config.get('default_profile'), 'profiles': profiles})
             if parsed.path.startswith('/v1/jobs/') and parsed.path.endswith('/events'):
                 job_id = parsed.path.split('/')[-2]
-                if not get_job(job_id): return self.send_json(404, {'error': 'job_not_found'})
+                if not get_job(job_id): return self.send_error(404, 'job_not_found', 'Job 不存在')
                 self.send_response(200); self.send_header('Content-Type', 'text/event-stream'); self.send_header('Cache-Control', 'no-cache'); self.send_header('Connection', 'close'); self.end_headers()
                 index = 0; deadline = time.time() + 300
                 while time.time() < deadline:
@@ -514,7 +522,7 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path.startswith('/v1/jobs/'):
                 job_id = parsed.path.rsplit('/', 1)[-1]
                 job = get_job(job_id)
-                if not job: return self.send_json(404, {'error': 'job_not_found'})
+                if not job: return self.send_error(404, 'job_not_found', 'Job 不存在')
                 return self.send_json(200, job)
             if parsed.path == '/v1/thumbnails':
                 raw_path=parse_qs(parsed.query).get('path',[''])[0]; file_path=safe_download_path(raw_path)
@@ -561,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError) as exc: raise ExecutorError('请求体必须是 UTF-8 JSON', 400) from exc
 
     def do_POST(self):
-        if not self.authorized(): return self.send_json(401, {'error': 'unauthorized'})
+        if not self.authorized(): return self.send_error(401, 'unauthorized', '需要 Bearer Token')
         parsed = urlparse(self.path)
         try:
             payload = self.read_body()
@@ -615,9 +623,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(exc.status, {'error': str(exc)})
         except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
             status = 504 if isinstance(exc, subprocess.TimeoutExpired) else 422
-            return self.send_json(status, {'error': str(exc)})
+            return self.send_error(status, 'request_invalid' if status == 422 else 'executor_timeout', str(exc))
         except Exception as exc:
-            return self.send_json(500, {'error': str(exc)})
+            return self.send_error(500, 'internal_error', str(exc))
 
 
 def main():

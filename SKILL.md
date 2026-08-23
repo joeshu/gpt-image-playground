@@ -1,7 +1,7 @@
 ---
 name: gpt-image-playground
 description: 可被其他 AI 工具调用的图片生成编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job、Web 工作台、首次配置、历史、画廊、收藏、备份恢复和安全文件管理。用户要求生成/编辑/批量处理图片，或需要图片 Provider、Agent、API、Web 工作台时使用。
-version: 1.9.0
+version: 2.0.0
 ---
 
 # GPT Image Playground 技能
@@ -379,3 +379,11 @@ connection.example.json
 - `apply: true` 恢复失败时删除本次复制文件并终止，不覆盖原有任务
 - Agent 指定轮次重生成：`--round-index N`
 - Web 画廊多选、批量收藏/删除和 Lightbox 导航
+
+## v2.0 稳定版契约
+
+- API 版本：`2.0.0`，兼容 v1 客户端
+- `GET /v1/version` 返回 `min_client_version` 与兼容范围
+- API 错误统一为 `{ "error": { "code": "...", "message": "...", "details": {} } }`
+- OpenAPI 提供版本、生成、批量、Agent、Job、画廊、备份、图片和配置接口
+- 发布前执行编译、API、CLI、Agent、Provider、敏感扫描和 Git 工作区检查
