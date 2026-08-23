@@ -1,4 +1,4 @@
-# GPT Image Playground v1.4
+# GPT Image Playground v1.5
 
 ## 首次使用配置
 
@@ -175,3 +175,7 @@ GET /v1/history?q=海报&status=completed&profile=default
 ## v1.4 画廊、收藏与备份
 
 新增图片 SHA-256 索引、画廊 API、收藏接口、manifest 完整备份 ZIP，以及 Web 历史搜索和画廊入口。图片索引与任务索引共用 `workspace/gpt-image-playground/tasks.sqlite3`，不会写入技能仓库。
+
+## v1.5 管理与恢复
+
+新增图片批量删除、索引删除/文件删除分离、结果和画廊 Lightbox。备份 ZIP 使用 `manifest.json`，为后续恢复导入保留结构。

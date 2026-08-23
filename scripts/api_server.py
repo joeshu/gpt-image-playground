@@ -29,9 +29,9 @@ try:
 except ImportError:
     from scripts.task_store import search as search_tasks
 try:
-    from image_store import list_images, set_favorite
+    from image_store import list_images, set_favorite, delete_images
 except ImportError:
-    from scripts.image_store import list_images, set_favorite
+    from scripts.image_store import list_images, set_favorite, delete_images
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -515,6 +515,9 @@ class Handler(BaseHTTPRequestHandler):
             payload = self.read_body()
             if parsed.path == '/v1/setup':
                 return self.send_json(200, setup_from_json(payload))
+            if parsed.path == '/v1/delete-images':
+                ids=payload.get('image_ids') or ([payload.get('image_id')] if payload.get('image_id') else [])
+                return self.send_json(200, delete_images(ids, bool(payload.get('remove_files', False))))
             if parsed.path == '/v1/favorite':
                 return self.send_json(200, set_favorite(str(payload.get('image_id','')), bool(payload.get('favorite', True))))
             if parsed.path == '/v1/backup/export':

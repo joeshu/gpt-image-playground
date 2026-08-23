@@ -47,6 +47,22 @@ def list_images(favorite=False, limit=50, db=DB):
     return [dict(row) for row in rows]
 
 
+def delete_images(image_ids, remove_files=False, db=DB):
+    init(db); ids=[str(x) for x in image_ids if x]
+    removed=[]
+    with connect(db) as cx:
+        rows=cx.execute('SELECT image_id,path FROM images WHERE image_id IN (%s)' % ','.join('?'*len(ids)), ids).fetchall() if ids else []
+        for row in rows:
+            if remove_files:
+                path=Path(row['path'])
+                try: path.unlink(missing_ok=True)
+                except OSError: pass
+            removed.append(row['image_id'])
+        if ids: cx.execute('DELETE FROM images WHERE image_id IN (%s)' % ','.join('?'*len(ids)), ids)
+        cx.commit()
+    return {'deleted': removed, 'count': len(removed), 'files_removed': bool(remove_files)}
+
+
 def set_favorite(image_id, favorite=True, db=DB):
     init(db)
     with connect(db) as cx:
