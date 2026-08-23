@@ -7,6 +7,7 @@
       "provider": "openai-compatible",
       "endpoint": "",
       "model": "gpt-image-2",
+      "omit_model": true,
       "api_key_env": "GPT_IMAGE_API_KEY",
       "agent_endpoint": ""
     },

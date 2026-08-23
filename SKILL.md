@@ -1,7 +1,7 @@
 ---
 name: gpt-image-playground
 description: 可被其他 AI 工具调用的图片生成编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job、Web 工作台、首次配置、历史、画廊、收藏、备份恢复和安全文件管理。用户要求生成/编辑/批量处理图片，或需要图片 Provider、Agent、API、Web 工作台时使用。
-version: 2.0.2
+version: 2.0.3
 ---
 
 # GPT Image Playground 技能
@@ -387,3 +387,72 @@ connection.example.json
 - API 错误统一为 `{ "error": { "code": "...", "message": "...", "details": {} } }`
 - OpenAPI 提供版本、生成、批量、Agent、Job、画廊、备份、图片和配置接口
 - 发布前执行编译、API、CLI、Agent、Provider、敏感扫描和 Git 工作区检查
+
+## 原生接口模型模式
+
+部分 OpenAI-compatible 图片接口会在服务端选择默认图片模型，要求请求体**不包含** `model` 字段。此时不要把模型设置为空字符串；使用：
+
+Profile：
+
+```json
+{
+  "id": "native-images",
+  "provider": "openai-compatible",
+  "endpoint": "https://api.example.com/v1/images/generations",
+  "model": "gpt-image-2",
+  "omit_model": true
+}
+```
+
+CLI：
+
+```sh
+python3 scripts/playground.py \
+  --profile native-images \
+  --omit-model \
+  --prompt "一只橘猫头像"
+```
+
+任务 JSON 或 REST：
+
+```json
+{
+  "prompt": "一只橘猫头像",
+  "omit_model": true
+}
+```
+
+`omit_model: true` 的行为是：
+
+```text
+任务内部 model = null
+最终 HTTP JSON 不包含 model
+```
+
+默认值仍为 `false`，标准 OpenAI-compatible 接口继续发送 Profile 中的模型名。Dry Run 会检查最终请求文件，确认 `model` 是否真正省略。
+
+## Provider 能力配置建议
+
+原库的能力边界值得在本技能中显式区分：
+
+- Images API：单图、批量、参考图、遮罩、透明背景参数取决于接口
+- Responses API：Agent、多轮上下文、图片工具取决于 Agent endpoint
+- fal.ai：通常是队列提交与轮询，不假设支持 Images API 的全部参数
+- 自定义 Provider：通过 `customProviders` 声明同步/异步提交、轮询、结果路径和参数映射
+- 原生默认模型接口：使用 `omit_model: true`，不要伪造模型名
+
+建议每个 Profile 增加能力声明：
+
+```json
+{
+  "capabilities": {
+    "model_optional": true,
+    "supports_images_api": true,
+    "supports_responses": false,
+    "supports_transparent_background": false,
+    "supports_streaming": false
+  }
+}
+```
+
+能力声明用于 UI 提示和请求前校验，不会把 API Key 写入任务或请求日志。
