@@ -1,4 +1,4 @@
-# GPT Image Playground v1.7
+# GPT Image Playground v1.8
 
 ## 首次使用配置
 
@@ -187,3 +187,7 @@ GET /v1/history?q=海报&status=completed&profile=default
 ## v1.7 真正恢复与缩略图 API
 
 备份导入支持 `apply: true`，安全恢复任务和图片索引；缩略图通过 `/v1/thumbnails` 受控读取，Web 画廊和 Lightbox 继续使用鉴权访问。
+
+## v1.8 Agent 与画廊增强
+
+新增指定轮次重生成参数、备份 apply 恢复、受控缩略图 API、Web 画廊多选批量收藏/删除，以及 Lightbox 上一张/下一张导航。

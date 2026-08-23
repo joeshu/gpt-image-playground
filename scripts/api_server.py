@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '1.7.0'
+VERSION = '1.8.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
 ATTACHMENTS = Path('/var/minis/attachments/gpt-image-playground')
@@ -565,7 +565,7 @@ class Handler(BaseHTTPRequestHandler):
                 source=payload.get('session_path')
                 if not source: raise ValueError('缺少 session_path')
                 from agent import regenerate_session
-                return self.send_json(200, regenerate_session(source,payload.get('target_path')))
+                return self.send_json(200, regenerate_session(source,payload.get('target_path'),payload.get('round_index')))
             if parsed.path == '/v1/setup':
                 return self.send_json(200, setup_from_json(payload))
             if parsed.path == '/v1/backup/import':

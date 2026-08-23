@@ -244,11 +244,14 @@ def fork_session(source, target, branch_id=None):
     write_json(target,value); return {'status':'forked','branch_id':value['branch_id'],'session_path':str(target)}
 
 
-def regenerate_session(source, target=None):
+def regenerate_session(source, target=None, round_index=None):
     value=read_json(source)
     if not isinstance(value,dict) or not value.get('conversation_id'): raise ValueError('无效 Agent session')
-    value['branch_id']='regen-'+uuid.uuid4().hex[:8]; value['parent_session']=str(source); value['status']='regenerate_requested'; value['rounds']=max(0,int(value.get('rounds',0))-1)
-    target=target or source; write_json(target,value); return {'status':'regenerate_requested','branch_id':value['branch_id'],'session_path':str(target)}
+    total=max(0,int(value.get('rounds',0)))
+    if round_index is None: round_index=max(0,total-1)
+    if not isinstance(round_index,int) or round_index < 0 or round_index >= max(total,1): raise ValueError('round_index 超出会话轮次')
+    value['branch_id']='regen-'+uuid.uuid4().hex[:8]; value['parent_session']=str(source); value['status']='regenerate_requested'; value['regenerate_round']=round_index; value['rounds']=round_index
+    target=target or source; write_json(target,value); return {'status':'regenerate_requested','branch_id':value['branch_id'],'round_index':round_index,'session_path':str(target)}
 
 
 def read_agent_history():
@@ -370,7 +373,7 @@ def main():
     parser.add_argument('--history-get'); parser.add_argument('--history-limit', type=int, default=20)
     parser.add_argument('--agent-retry', type=int, default=1); parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--setup', action='store_true'); parser.add_argument('--setup-json'); parser.add_argument('--connection-status', action='store_true')
-    parser.add_argument('--branch-from'); parser.add_argument('--branch-to'); parser.add_argument('--regenerate-session');
+    parser.add_argument('--branch-from'); parser.add_argument('--branch-to'); parser.add_argument('--regenerate-session'); parser.add_argument('--round-index', type=int)
     args = parser.parse_args()
     if args.max_rounds < 1 or args.max_rounds > MAX_ROUNDS: parser.error('--max-rounds 必须为 1-8')
     if args.agent_retry < 0 or args.agent_retry > 3: parser.error('--agent-retry 必须为 0-3')
@@ -381,7 +384,7 @@ def main():
             if not args.branch_to: parser.error('--branch-from 必须配合 --branch-to')
             print(json.dumps(fork_session(args.branch_from,args.branch_to),ensure_ascii=False,indent=2)); return
         if args.regenerate_session:
-            print(json.dumps(regenerate_session(args.regenerate_session,args.branch_to),ensure_ascii=False,indent=2)); return
+            print(json.dumps(regenerate_session(args.regenerate_session,args.branch_to,args.round_index),ensure_ascii=False,indent=2)); return
         if args.setup_json:
             print(json.dumps(setup_from_json(read_json(args.setup_json)), ensure_ascii=False, indent=2)); return
         if args.connection_status:
