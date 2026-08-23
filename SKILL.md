@@ -403,7 +403,7 @@ v1.2 新增：
 
 ## v1.4 画廊、收藏与备份
 
-- 图片 SHA-256 索引：`workspace/gpt-image-playground/images.sqlite3`
+- 图片 SHA-256 索引：`workspace/gpt-image-playground/tasks.sqlite3`
 - 画廊查询：`GET /v1/gallery?favorite=1&limit=50`
 - 收藏：`POST /v1/favorite`，请求 `{ "image_id": "...", "favorite": true }`
 - 收藏列表：`GET /v1/favorites`

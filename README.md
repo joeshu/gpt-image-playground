@@ -174,4 +174,4 @@ GET /v1/history?q=海报&status=completed&profile=default
 
 ## v1.4 画廊、收藏与备份
 
-新增图片 SHA-256 索引、画廊 API、收藏接口、manifest 完整备份 ZIP，以及 Web 历史搜索和画廊入口。图片索引数据库位于 `workspace/gpt-image-playground/images.sqlite3`，不会写入技能仓库。
+新增图片 SHA-256 索引、画廊 API、收藏接口、manifest 完整备份 ZIP，以及 Web 历史搜索和画廊入口。图片索引与任务索引共用 `workspace/gpt-image-playground/tasks.sqlite3`，不会写入技能仓库。
