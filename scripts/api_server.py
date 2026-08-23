@@ -28,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
 API_WORK = WORK / 'api'
@@ -412,7 +412,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized(): return self.send_json(401, {'error': 'unauthorized'})
         try:
             if parsed.path == '/v1/setup/status':
-                return self.send_json(200, setup_status())
+                profile_id = parse_qs(parsed.query).get('profile', ['default'])[0]
+                config = read_json(PROFILES); profile = next((x for x in config.get('profiles', []) if x.get('id') == profile_id), {'id': profile_id})
+                return self.send_json(200, setup_status(profile))
             if parsed.path == '/openapi.json':
                 return self.send_json(200, OPENAPI)
             if parsed.path == '/healthz':

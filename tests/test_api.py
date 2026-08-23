@@ -17,7 +17,7 @@ def check(condition, message):
 
 
 def main():
-    check(api.VERSION == '1.1.0', 'version')
+    check(api.VERSION == '1.2.0', 'version')
     check(api.safe_json('data:image/png;base64,abc').startswith('[data URL omitted'), 'redaction')
     check(api.normalize_task({'prompt': 'x', 'endpoint': 'evil', 'api_key': 'secret'})['prompt'] == 'x', 'normalization')
     try: api.validate_input_image('/etc/passwd'); raise AssertionError('path accepted')
