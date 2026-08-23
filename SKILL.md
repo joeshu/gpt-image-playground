@@ -1,6 +1,6 @@
 ---
 name: gpt-image-playground
-version: 1.3.0
+version: 1.4.0
 description: GPT Image Playground 上层编排技能。基于 gpt-image-tool 底层执行器，支持自然语言文生图、图片编辑、多参考图融合、批量生成与风格预设。
 ---
 
@@ -400,3 +400,13 @@ v1.2 新增：
 - SQLite 任务索引：`workspace/gpt-image-playground/tasks.sqlite3`
 - REST 历史搜索：`GET /v1/history?q=关键词&status=completed&profile=default`
 - Agent session 增加 `branch_id` 和 `parent_branch_id` 元数据，为后续分支恢复保留兼容字段
+
+## v1.4 画廊、收藏与备份
+
+- 图片 SHA-256 索引：`workspace/gpt-image-playground/images.sqlite3`
+- 画廊查询：`GET /v1/gallery?favorite=1&limit=50`
+- 收藏：`POST /v1/favorite`，请求 `{ "image_id": "...", "favorite": true }`
+- 收藏列表：`GET /v1/favorites`
+- 完整备份：`POST /v1/backup/export`，生成带 `manifest.json` 的 ZIP
+- Web 工作台增加历史搜索和画廊入口
+- Agent 会话分支字段保留在 session 中，兼容后续分支重生成

@@ -28,11 +28,15 @@ try:
     from task_store import search as search_tasks
 except ImportError:
     from scripts.task_store import search as search_tasks
+try:
+    from image_store import list_images, set_favorite
+except ImportError:
+    from scripts.image_store import list_images, set_favorite
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '1.3.0'
+VERSION = '1.4.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
 API_WORK = WORK / 'api'
@@ -338,6 +342,18 @@ def make_zip(value):
     return target
 
 
+def make_backup():
+    API_WORK.mkdir(parents=True, exist_ok=True)
+    target=API_WORK / f'backup-{time.strftime("%Y%m%d-%H%M%S")}-{uuid.uuid4().hex[:8]}.zip'
+    manifest={'version':1,'created_at':time.time(),'history':search_tasks(limit=200),'gallery':list_images(limit=200)}
+    with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False,indent=2))
+        for item in manifest['gallery']:
+            path=Path(item.get('path',''))
+            if path.is_file() and any(path.resolve()==root or root in path.resolve().parents for root in ALLOWED_ROOTS): archive.write(path,'images/'+path.name)
+    return target
+
+
 def safe_download_path(raw_path, allow_zip=False):
     path = Path(raw_path).expanduser().resolve()
     if not any(path == root or root in path.parents for root in ALLOWED_ROOTS):
@@ -356,6 +372,10 @@ OPENAPI = {
         '/v1/history': {'get': {'responses': {'200': {'description': 'History'}}}},
         '/v1/setup': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Configured'}}}},
         '/v1/setup/status': {'get': {'responses': {'200': {'description': 'Configuration status'}}}},
+        '/v1/gallery': {'get': {'responses': {'200': {'description': 'Image gallery'}}}},
+        '/v1/favorites': {'get': {'responses': {'200': {'description': 'Favorite images'}}}},
+        '/v1/favorite': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Favorite updated'}}}},
+        '/v1/backup/export': {'post': {'responses': {'200': {'description': 'Backup ZIP'}}}},
         '/v1/generate': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
         '/v1/batch': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
         '/v1/agent': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
@@ -470,6 +490,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('Content-Length', str(len(raw)))
                 self.send_header('Content-Disposition', f'attachment; filename="{result_path.name}"')
                 self.end_headers(); self.wfile.write(raw); return
+            if parsed.path == '/v1/gallery':
+                params=parse_qs(parsed.query); return self.send_json(200, {'items': list_images(params.get('favorite',['0'])[0]=='1', int(params.get('limit',['50'])[0]))})
+            if parsed.path == '/v1/favorites':
+                return self.send_json(200, {'items': list_images(True)})
             if parsed.path == '/v1/history':
                 params = parse_qs(parsed.query); limit = int(params.get('limit', ['20'])[0])
                 return self.send_json(200, {'items': search_tasks(params.get('q', [''])[0], params.get('status', [''])[0], params.get('profile', [''])[0], limit)})
@@ -491,6 +515,11 @@ class Handler(BaseHTTPRequestHandler):
             payload = self.read_body()
             if parsed.path == '/v1/setup':
                 return self.send_json(200, setup_from_json(payload))
+            if parsed.path == '/v1/favorite':
+                return self.send_json(200, set_favorite(str(payload.get('image_id','')), bool(payload.get('favorite', True))))
+            if parsed.path == '/v1/backup/export':
+                target = make_backup()
+                return self.send_json(200, {'status':'exported','path':str(target),'download_url':'/v1/download-zip?result='+str(target)})
             if parsed.path == '/v1/export-zip':
                 target = make_zip(payload.get('result', payload))
                 return self.send_json(200, {'status': 'exported', 'path': str(target), 'download_url': '/v1/download-zip?result=' + str(target)})
