@@ -93,8 +93,21 @@ def add_history(entry):
         f.write(json.dumps(entry, ensure_ascii=False) + '\n')
     try:
         record_task(entry)
-        index_result(entry)
-    except Exception: pass
+    except Exception:
+        pass
+    result = entry.get('result') if isinstance(entry, dict) else None
+    saved = result.get('saved_images', []) if isinstance(result, dict) else []
+    if not saved:
+        return
+    image_entry = {'task_id': entry.get('task_id'), 'saved_images': saved}
+    for attempt in range(3):
+        try:
+            if index_result(image_entry) or attempt == 2:
+                return
+        except Exception:
+            if attempt == 2:
+                return
+        time.sleep(0.1 * (attempt + 1))
 
 
 def read_history():
