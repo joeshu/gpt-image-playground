@@ -40,6 +40,280 @@ python3 scripts/skill.py agent --profile default --prompt "生成三张独立场
 
 入口使用 JSON stdout 契约，完整调用约定和能力说明均位于 `SKILL.md`。
 
+## 规范使用指南
+
+### 技能定位
+
+`gpt-image-playground` 是一个图片生成与编辑编排技能，适合由 CLI、其他 Agent、Web 工作台或 REST 客户端调用。技能负责统一处理 Profile、Provider、图片参数、参考图、遮罩、批量任务、Agent 编排、任务历史和结果文件。
+
+技能入口文件为 `SKILL.md`。自动化 Agent 应先读取 `SKILL.md`，再从项目根目录执行脚本；详细案例、配置方式和安全约束以本 README 为准。
+
+### 标准调用流程
+
+1. 检查技能和 Profile 配置。
+
+```sh
+python3 scripts/skill.py check
+python3 scripts/playground.py --validate-profiles
+```
+
+2. 根据任务类型选择入口。
+
+| 任务目标 | 推荐入口 | 说明 |
+| --- | --- | --- |
+| 单张图片生成 | `scripts/playground.py` | 文生图、参数控制、参考图和遮罩 |
+| 同一提示词生成多张图片 | `scripts/playground.py` | 使用 `--n` 控制数量 |
+| 多个不同提示词任务 | `scripts/playground.py` | 使用 `--batch` 和 `--concurrency` |
+| 多轮规划和连续创作 | `scripts/agent.py` | 使用 Responses Agent 编排任务 |
+| 提供给其他工具调用 | `scripts/api_server.py` | 使用 REST/OpenAPI 和异步 Job |
+| 人工操作和结果浏览 | Web 工作台 | 创建、画廊、历史和设置 |
+
+3. 先执行 Dry Run 验证参数，再执行真实请求。
+
+```sh
+python3 scripts/playground.py \
+  --profile default \
+  --prompt "产品海报，暖色纸张质感，大面积留白" \
+  --size 4:5 \
+  --quality medium \
+  --dry-run
+```
+
+4. 读取 JSON stdout，使用 `saved_images`、`images`、`job_id`、`error` 和诊断字段处理结果。
+
+5. 真实任务完成后，根据需要从 `outputs/gpt-image-playground/` 获取图片，从历史或画廊接口获取任务索引。
+
+### 入口一：通用技能入口
+
+`scripts/skill.py` 适合其他 Agent 或自动化脚本统一调用。
+
+检查技能：
+
+```sh
+python3 scripts/skill.py check
+```
+
+生成图片：
+
+```sh
+python3 scripts/skill.py generate \
+  --profile default \
+  --prompt "极简风格的红色咖啡杯产品图"
+```
+
+调用 Agent：
+
+```sh
+python3 scripts/skill.py agent \
+  --profile default \
+  --prompt "先设计一个角色，再生成三张不同场景图"
+```
+
+启动 Web/API 服务：
+
+```sh
+python3 scripts/skill.py serve \
+  --host 127.0.0.1 \
+  --port 8765
+```
+
+### 入口二：CLI 图片生成
+
+使用 `scripts/playground.py` 处理单图、参考图、遮罩、批量和 Provider 参数。
+
+最小调用：
+
+```sh
+python3 scripts/playground.py \
+  --profile default \
+  --prompt "雨夜霓虹城市电影海报"
+```
+
+常用参数：
+
+| 参数 | 用途 | 示例 |
+| --- | --- | --- |
+| `--profile` | 选择 Profile | `--profile default` |
+| `--prompt` | 输入提示词 | `--prompt "产品摄影"` |
+| `--image` | 添加参考图，可重复 | `--image source.png` |
+| `--mask` | 指定局部编辑遮罩 | `--mask mask.png` |
+| `--size` | 画布比例或尺寸 | `--size 16:9` |
+| `--quality` | 图片质量 | `--quality high` |
+| `--n` | 同提示词生成数量 | `--n 4` |
+| `--style` | 风格提示 | `--style editorial` |
+| `--execution-mode` | 执行策略 | `auto`、`native`、`script` |
+| `--api-mode` | Provider API 模式 | `images`、`responses` |
+| `--stream` | 请求流式事件 | 适用于 Responses API |
+| `--dry-run` | 只校验参数 | 不调用 Provider |
+
+### 入口三：Agent 编排
+
+使用 `scripts/agent.py` 处理需要拆解步骤、连续生成、会话恢复或分支实验的任务。
+
+```sh
+python3 scripts/agent.py \
+  --profile default \
+  --execution-mode native \
+  --max-rounds 6 \
+  --prompt "设计一个橘猫侦探角色，再生成三张不同场景图"
+```
+
+执行策略：
+
+- `native`：使用 Provider 原生图片生成工具，适合作为默认模式。
+- `script`：使用本地 `generate_image` 工具，适合需要本地工具编排的场景。
+- `auto`：根据 Provider 能力和请求结果自动选择可用路径。
+
+流式输出：
+
+```sh
+python3 scripts/agent.py \
+  --profile default \
+  --stream \
+  --prompt "生成一组统一风格的角色设定图"
+```
+
+恢复中断会话：
+
+```sh
+python3 scripts/agent.py \
+  --resume agent-session.json \
+  --prompt "继续完成剩余场景"
+```
+
+创建分支会话和重生成指定轮次：
+
+```sh
+python3 scripts/agent.py \
+  --branch-from agent-session.json \
+  --branch-to experiment-session.json
+
+python3 scripts/agent.py \
+  --regenerate-session agent-session.json \
+  --round-index 2 \
+  --branch-to regenerated-session.json
+```
+
+### 入口四：REST/OpenAPI 服务
+
+启动本地服务：
+
+```sh
+python3 scripts/api_server.py \
+  --host 127.0.0.1 \
+  --port 8765
+```
+
+健康检查：
+
+```sh
+curl --max-time 10 http://127.0.0.1:8765/healthz
+```
+
+查看 OpenAPI：
+
+```sh
+curl --max-time 10 http://127.0.0.1:8765/openapi.json
+```
+
+同步生成请求：
+
+```sh
+curl --max-time 120 \
+  -X POST http://127.0.0.1:8765/v1/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "profile": "default",
+    "prompt": "极简风格产品海报",
+    "size": "4:5",
+    "quality": "medium",
+    "n": 1
+  }'
+```
+
+异步任务：
+
+```sh
+curl --max-time 30 \
+  -X POST http://127.0.0.1:8765/v1/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "profile": "default",
+    "prompt": "生成一张产品图",
+    "async": true
+  }'
+```
+
+响应中的 `job_id` 用于查询任务和订阅事件：
+
+```text
+GET /v1/jobs/<job-id>
+GET /v1/jobs/<job-id>/events
+```
+
+### 入口五：Web 工作台
+
+Web 工作台和 API 服务使用同一个 Python 服务。启动后访问 `http://127.0.0.1:8765/`。
+
+```sh
+python3 scripts/api_server.py \
+  --host 127.0.0.1 \
+  --port 8765
+```
+
+主要视图：
+
+- 创建图片：使用单张、批量或智能代理模式提交任务。
+- 画廊：搜索、筛选、收藏、选择、批量操作和查看图片详情。
+- 历史任务：搜索任务记录并打开任务详情。
+- 设置：选择 Profile、配置 Provider、设置默认生成参数和浏览器偏好。
+
+Web 端默认中文显示，保留 `Profile`、`Provider`、`API Key`、模型名和接口地址等技术标识。API Key 只提交到本地服务，浏览器 Token 只有在用户主动保存时才写入 localStorage。
+
+### 输出契约
+
+自动化调用应把 stdout 当作 JSON 接口处理，不应依赖人类可读日志。常见成功字段：
+
+| 字段 | 用途 |
+| --- | --- |
+| `saved_images` | CLI 生成图片的本地保存路径 |
+| `images` | Agent 或 REST 返回的图片结果 |
+| `job_id` | 异步任务标识 |
+| `requested_params` | 用户请求的规范化参数 |
+| `actual_params` | Provider 实际使用的参数 |
+| `attempts` | 请求尝试和重试信息 |
+| `timing.elapsed_ms` | 任务耗时 |
+| `events_file` | Agent JSONL 事件文件 |
+| `error` | 失败原因 |
+| `error_code` | 稳定错误分类 |
+
+批量结果使用 `batch_id` 和 `batch_item_id` 作为稳定标识。部分失败批次可以通过 `--retry-task <batch_id>` 重试失败项，成功项会复用已有结果。
+
+### 配置与安全规则
+
+1. 首次使用先执行 `--setup` 或 `--connection-status`。
+2. 用户项目配置使用 `GPT_IMAGE_*`、`GPT_AGENT_*`、`FAL_KEY` 和 `GPT_PLAYGROUND_*` 变量。
+3. API Key 仅由用户通过环境变量或本地连接文件提供。
+4. 连接文件使用 `600` 权限并存放在运行数据目录。
+5. API Key 不进入 Git、任务文件、历史、日志、API 响应或浏览器存储。
+6. 将服务绑定到非 localhost 地址时，必须配置 `GPT_PLAYGROUND_API_TOKEN`。
+7. 远程图片 URL 会被 REST 输入校验拒绝；本地图片必须位于允许的输入目录。
+
+### 验证清单
+
+完成安装、配置或代码修改后，按顺序执行：
+
+```sh
+python3 scripts/skill.py check
+python3 scripts/playground.py --validate-profiles
+python3 scripts/playground.py --prompt "验证参数" --dry-run
+python3 scripts/agent.py --prompt "验证 Agent" --dry-run
+python3 -m py_compile scripts/*.py tests/*.py
+PYTHONPATH=scripts python3 tests/test_api.py
+PYTHONPATH=scripts python3 tests/test_providers.py
+git diff --check
+```
+
 ## 适用场景
 
 - 文生图、参考图、多图融合、遮罩编辑
