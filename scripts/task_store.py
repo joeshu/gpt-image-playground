@@ -25,6 +25,12 @@ def connect(path=DB):
     return db
 
 
+def get(task_id, path=DB):
+    with connect(path) as db:
+        row=db.execute('SELECT result_json FROM tasks WHERE task_id=?',(str(task_id),)).fetchone()
+    return json.loads(row['result_json']) if row else None
+
+
 def record(entry, path=DB):
     if not isinstance(entry, dict) or not entry.get('task_id'): return
     with connect(path) as db:
@@ -35,6 +41,14 @@ def record(entry, path=DB):
             entry.get('status'), entry.get('prompt'), entry.get('profile'), entry.get('model'),
             entry.get('size'), entry.get('provider'), json.dumps(entry, ensure_ascii=False)))
         db.commit()
+
+
+def upsert(entry, path=DB, conflict='replace'):
+    if not isinstance(entry,dict) or not entry.get('task_id'): return 'ignored'
+    existing=get(entry['task_id'],path)
+    if existing and conflict=='fail': raise ValueError(f'任务已存在: {entry["task_id"]}')
+    if existing and conflict=='skip': return 'skipped'
+    record(entry,path); return 'replaced' if existing else 'inserted'
 
 
 def migrate_legacy(path=DB):

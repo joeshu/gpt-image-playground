@@ -26,9 +26,9 @@ try:
 except ImportError:
     from scripts.connection import connection, setup_from_json, setup_status
 try:
-    from task_store import search as search_tasks, record as record_task
+    from task_store import search as search_tasks, record as record_task, get as get_task, upsert as upsert_task, DB as TASK_DB
 except ImportError:
-    from scripts.task_store import search as search_tasks, record as record_task
+    from scripts.task_store import search as search_tasks, record as record_task, get as get_task, upsert as upsert_task, DB as TASK_DB
 try:
     from image_store import list_images, set_favorite, delete_images, index_result, thumbnail
 except ImportError:
@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '1.8.0'
+VERSION = '1.9.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
 ATTACHMENTS = Path('/var/minis/attachments/gpt-image-playground')
@@ -367,26 +367,35 @@ def extract_manifest(zip_path):
         return manifest, names
 
 
-def restore_backup(zip_path, apply=False):
-    manifest,names=extract_manifest(zip_path); restored=0; tasks=0
+def restore_backup(zip_path, apply=False, conflict='skip'):
+    manifest,names=extract_manifest(zip_path); restored=0; tasks=0; skipped=0; copied=[]
+    if conflict not in ('fail','skip','replace'): raise ValueError('conflict 必须是 fail、skip 或 replace')
     if apply:
         extract_root=API_WORK/'restore-staging'/uuid.uuid4().hex; extract_root.mkdir(parents=True,exist_ok=False)
-        with zipfile.ZipFile(zip_path) as z: z.extractall(extract_root)
-        for item in manifest.get('history',[]):
-            try: record_task(item); tasks += 1
-            except Exception: pass
-        for item in manifest.get('gallery',[]):
-            original=Path(item.get('path','')); source=extract_root/'images'/original.name
-            if source.is_file():
-                target=ATTACHMENTS/original.name; target.parent.mkdir(parents=True,exist_ok=True)
-                if not target.exists(): shutil.copy2(source,target)
-                item=dict(item); item['path']=str(target)
-                try: index_result({'task_id':item.get('task_id'),'saved_images':[item]}); restored += 1
-                except Exception: pass
-        shutil.rmtree(extract_root,ignore_errors=True)
-    else:
-        restored=sum(1 for item in manifest.get('gallery',[]) if 'images/'+Path(item.get('path','')).name in names)
-    return {'status':'restored' if apply else 'validated','version':manifest['version'],'tasks':tasks if apply else len(manifest.get('history',[])),'images':restored}
+        db_backup=None
+        try:
+            if TASK_DB.exists(): db_backup=TASK_DB.with_suffix('.restore-backup'); shutil.copy2(TASK_DB,db_backup)
+            with zipfile.ZipFile(zip_path) as z: z.extractall(extract_root)
+            for item in manifest.get('history',[]):
+                result=upsert_task(item, conflict=conflict)
+                tasks += result in ('inserted','replaced'); skipped += result=='skipped'
+            for item in manifest.get('gallery',[]):
+                original=Path(item.get('path','')); source=extract_root/'images'/original.name
+                if source.is_file():
+                    target=ATTACHMENTS/original.name; target.parent.mkdir(parents=True,exist_ok=True)
+                    if target.exists() and conflict=='fail': raise ValueError(f'图片已存在: {target.name}')
+                    if not target.exists() or conflict=='replace': shutil.copy2(source,target); copied.append(target)
+                    if target.exists():
+                        item=dict(item); item['path']=str(target); index_result({'task_id':item.get('task_id'),'saved_images':[item]}); restored += 1
+        except Exception:
+            for path in copied: path.unlink(missing_ok=True)
+            if db_backup and db_backup.exists(): shutil.copy2(db_backup,TASK_DB)
+            raise
+        finally:
+            if db_backup: db_backup.unlink(missing_ok=True)
+            shutil.rmtree(extract_root,ignore_errors=True)
+    else: restored=sum(1 for item in manifest.get('gallery',[]) if 'images/'+Path(item.get('path','')).name in names)
+    return {'status':'restored' if apply else 'validated','version':manifest['version'],'tasks':int(tasks) if apply else len(manifest.get('history',[])),'images':restored,'skipped':skipped,'conflict':conflict}
 
 
 def safe_download_path(raw_path, allow_zip=False):
@@ -426,7 +435,7 @@ OPENAPI = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'GPTImagePlaygroundAPI/1.1.0'
+    server_version = 'GPTImagePlaygroundAPI/1.9.0'
 
     def log_message(self, fmt, *args):
         sys.stderr.write('[playground-api] ' + (fmt % args) + '\n')
@@ -572,7 +581,7 @@ class Handler(BaseHTTPRequestHandler):
                 archive=payload.get('path')
                 if not isinstance(archive,str): raise ValueError('缺少备份文件路径')
                 archive=safe_download_path(archive, allow_zip=True)
-                return self.send_json(200, restore_backup(archive, bool(payload.get('apply', False))))
+                return self.send_json(200, restore_backup(archive, bool(payload.get('apply', False)), payload.get('conflict','skip')))
             if parsed.path == '/v1/delete-images':
                 ids=payload.get('image_ids') or ([payload.get('image_id')] if payload.get('image_id') else [])
                 return self.send_json(200, delete_images(ids, bool(payload.get('remove_files', False))))

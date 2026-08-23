@@ -1,193 +1,328 @@
-# GPT Image Playground v1.8
+# GPT Image Playground Skill
 
-## 首次使用配置
+一个面向其他 AI 工具的图片生成编排技能。它不是单纯的 React 图片应用，而是把 CLI、REST、OpenAPI、Responses Agent、Web 工作台和多个图片 Provider 统一成可调用的技能接口。
 
-首次没有环境变量时，运行：
-
-```sh
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --setup
+```text
+Claude / Codex / Gemini / 自定义 Agent / CLI / Web
+                         ↓
+              gpt-image-playground skill
+                         ↓
+ Images API / Responses API / fal.ai / Custom Provider
 ```
 
-或导入标准 JSON：
+当前版本：`1.9.0`
+
+## 适用场景
+
+- 文生图、参考图、多图融合、遮罩编辑
+- 批量生成、并发、失败隔离、网络重试
+- OpenAI Images API、Responses 图片 API、fal.ai、自定义 Provider
+- Responses Agent 多轮图片规划
+- 提供给其他 AI 工具的本地 REST/OpenAPI 图片服务
+- 任务历史、SQLite 索引、画廊、收藏、缩略图
+- 结果 ZIP、完整备份、备份恢复
+
+## 快速开始
+
+### 1. 首次配置
+
+没有环境变量时：
 
 ```sh
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py \
-  --setup-json /var/minis/skills/gpt-image-playground/connection.example.json
+python3 scripts/playground.py --setup
 ```
 
-配置文件位于：
+或者导入配置模板：
+
+```sh
+python3 scripts/playground.py --setup-json connection.example.json
+```
+
+配置保存于：
 
 ```text
 /var/minis/workspace/gpt-image-playground/connection.json
 ```
 
-权限为 `600`。API Key 不进入任务、日志、历史、OpenAPI 或浏览器 localStorage。
+文件权限为 `600`。API Key 不进入 Git、任务文件、历史、API 响应或浏览器 localStorage。
 
-API 配置接口：
+查看状态：
 
-```text
-GET  /v1/setup/status
-POST /v1/setup
-GET  /openapi.json
+```sh
+python3 scripts/playground.py --connection-status
 ```
 
+服务器部署可使用：
 
-## 本地 REST API
+```text
+GPT_IMAGE_ENDPOINT
+GPT_IMAGE_API_KEY
+GPT_AGENT_ENDPOINT
+FAL_KEY
+```
+
+### 2. CLI 生成
+
+```sh
+python3 scripts/playground.py \
+  --profile default \
+  --prompt "电影海报，夜晚城市，宽幅构图"
+```
+
+参考图和遮罩：
+
+```sh
+python3 scripts/playground.py \
+  --prompt "只修改选区内容" \
+  --image /var/minis/attachments/source.png \
+  --mask /var/minis/attachments/mask.png
+```
+
+Dry Run：
+
+```sh
+python3 scripts/playground.py --prompt "测试" --dry-run
+```
+
+### 3. Agent
+
+```sh
+python3 scripts/agent.py \
+  --profile default \
+  --prompt "先设计角色，再生成三张场景图"
+```
+
+Session 分支：
+
+```sh
+python3 scripts/agent.py \
+  --branch-from session.json \
+  --branch-to branch.json
+```
+
+指定轮次重生成请求：
+
+```sh
+python3 scripts/agent.py \
+  --regenerate-session session.json \
+  --round-index 2 \
+  --branch-to regenerated.json
+```
+
+## REST / OpenAPI
 
 启动：
 
 ```sh
-python3 /var/minis/skills/gpt-image-playground/scripts/api_server.py \
-  --host 127.0.0.1 --port 8765
+python3 scripts/api_server.py --host 127.0.0.1 --port 8765
 ```
 
-同步生成：
+停止：
 
 ```sh
-curl -X POST http://127.0.0.1:8765/v1/generate \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"电影海报","profile":"aiwanwu","dry_run":true}'
+python3 scripts/api_server.py --stop
 ```
 
-异步 Job：
+OpenAPI：
 
-```sh
-curl -X POST http://127.0.0.1:8765/v1/generate \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"长任务","profile":"aiwanwu","async":true}'
-
-curl http://127.0.0.1:8765/v1/jobs/<job-id>
+```text
+GET /openapi.json
 ```
 
-接口还提供 `/healthz`、`/v1/profiles`、`/v1/history`、`/v1/batch` 和 `/v1/agent`。默认只绑定 localhost；设置 `GPT_PLAYGROUND_API_TOKEN` 后启用 Bearer Token 鉴权。API 不接受客户端传入密钥或 endpoint，图片路径限制在 Minis 共享目录。
+主要接口：
 
-
-## Responses Agent
-
-```sh
-python3 /var/minis/skills/gpt-image-playground/scripts/agent.py \
-  --profile aiwanwu \
-  --prompt '生成一张角色设定图，再基于它生成三张场景图'
+```text
+POST /v1/generate
+POST /v1/batch
+POST /v1/agent
+GET  /v1/jobs/{id}
+GET  /v1/jobs/{id}/events
+GET  /v1/history
+GET  /v1/gallery
+GET  /v1/favorites
+POST /v1/favorite
+POST /v1/delete-images
+POST /v1/backup/export
+POST /v1/backup/import
+GET  /v1/thumbnails
+POST /v1/agent/branch
+POST /v1/agent/regenerate
 ```
 
-Agent 通过 Responses API 规划，调用 `generate_image`、`generate_image_batch` 和 `continue_generation`，实际图片生成仍回到主 Playground 执行器。最多 8 轮、每批最多 16 张、批量最多 4 路并发。
+异步调用：
 
-Responses endpoint 优先级：`--endpoint` → `GPT_AGENT_ENDPOINT` → Profile `agent_endpoint` → Profile `baseUrl/responses`。
-
-Dry-run 不需要 API Key：
-
-```sh
-python3 /var/minis/skills/gpt-image-playground/scripts/agent.py \
-  --profile aiwanwu --prompt '生成电影海报' --dry-run
+```json
+{
+  "prompt": "生成产品图",
+  "profile": "default",
+  "async": true
+}
 ```
 
-Agent 记录保存在 `/var/minis/workspace/gpt-image-playground/agent-history.jsonl`。
+然后通过 SSE 获取：
 
-查询 Agent 历史：
-
-```sh
-python3 /var/minis/skills/gpt-image-playground/scripts/agent.py --history-list --history-limit 20
-python3 /var/minis/skills/gpt-image-playground/scripts/agent.py --history-get <conversation-id>
+```text
+GET /v1/jobs/<job-id>/events
 ```
 
-Agent 请求可使用 `--agent-retry 2` 重试网络错误、超时、429 和 5xx。批量工具采用失败隔离，单个失败不会影响其他结果；图片引用支持已生成图片 ID、`ref:id` 和 `<ref id="..." />`。
+首次连接配置：
 
+```http
+POST /v1/setup
+```
+
+```json
+{
+  "profile": "default",
+  "endpoint": "https://api.example.com/v1/images/generations",
+  "api_key": "首次填写",
+  "model": "gpt-image-2"
+}
+```
+
+## Provider
+
+Profile 配置：
+
+```text
+profiles.json
+profiles.custom.sync.example.json
+profiles.custom.async.example.json
+```
+
+支持：
+
+```text
+openai-compatible + api_mode=images
+openai-compatible + api_mode=responses
+fal / fal.ai
+custom synchronous
+custom asynchronous
+multipart provider
+```
 
 ## Web 工作台
 
-启动 API 后打开 `http://127.0.0.1:8765/`：
-
-```sh
-python3 /var/minis/skills/gpt-image-playground/scripts/api_server.py \
-  --host 127.0.0.1 --port 8765
-```
-
-支持单图、批量、Agent、参考图、遮罩、异步 Job、结果预览和历史列表。浏览器上传图片不会写入 API 请求日志，服务端临时文件执行后自动删除。
-
-
-
-## 常用命令
-
-```sh
-# 文生图
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py \
-  --prompt '电影感的雪山湖泊' --style cinematic --size 16:9
-
-# 批量生成
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py \
-  --batch /var/minis/skills/gpt-image-playground/tasks.batch.sample.json \
-  --concurrency 2 --retry 1
-
-# 遮罩编辑
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py \
-  --prompt '只修改选区中的物体' --image source.png --mask mask.png
-```
-
-## Profile 管理
-
-```sh
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --validate-profiles
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --test-profile aiwanwu
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --export-profiles backup.json
-python3 /var/minis/skills/gpt-image-playground/scripts/playground.py --import-profiles profiles.json --merge-profiles
-```
-
-`--test-profile` 只做 HEAD 连通性探测，不发起图片生成。Profile 不保存 API Key，密钥只从 `api_key_env` 指定的环境变量读取。
-
-## 自定义供应商
-
-- `profiles.custom.sync.example.json`：同步 JSON、multipart 编辑和遮罩
-- `profiles.custom.async.example.json`：异步 task ID、状态轮询、URL/Base64 结果映射
-- `scripts/custom_provider.py`：声明式 Provider 执行器
-
-支持模板变量：`$prompt`、`$profile.model`、`$params.*`、`$inputImages.dataUrls`、`$mask.dataUrl`。
-
-## 产物
-
-- 图片：`/var/minis/attachments/gpt-image-playground/`
-- 任务、响应、诊断：`/var/minis/workspace/gpt-image-playground/`
-- 历史：`/var/minis/workspace/gpt-image-playground/history.jsonl`
-
-不要把 API Key 写入 Profile、任务 JSON、Shell 参数或对话。
-
-## v1.2 新增
-
-- 多 Profile 独立连接和 Secret
-- Images / Responses 双 API 模式
-- fal.ai Queue Provider
-- Job SSE 事件流
-- 实际参数和 revised prompt 摘要
-- GitHub Actions 自动测试
-
-## v1.3 Web 与历史增强
-
-- Canvas 遮罩编辑器
-- 参考图拖拽和剪贴板粘贴
-- SQLite 任务索引和历史搜索
-- Agent session 分支元数据
-
-历史搜索示例：
+启动 API 后访问：
 
 ```text
-GET /v1/history?q=海报&status=completed&profile=default
+http://127.0.0.1:8765/
 ```
 
-## v1.4 画廊、收藏与备份
+支持：
 
-新增图片 SHA-256 索引、画廊 API、收藏接口、manifest 完整备份 ZIP，以及 Web 历史搜索和画廊入口。图片索引与任务索引共用 `workspace/gpt-image-playground/tasks.sqlite3`，不会写入技能仓库。
+- 首次配置
+- 参考图选择、拖拽、剪贴板粘贴
+- Canvas 遮罩编辑
+- 单图、批量、Agent
+- Job 状态和 SSE
+- 结果预览和 Lightbox
+- Lightbox 上一张/下一张
+- 历史搜索
+- 画廊和缩略图
+- 多选、批量收藏、批量删除
+- ZIP 导出和完整备份
 
-## v1.5 管理与恢复
+## 备份与恢复
 
-新增图片批量删除、索引删除/文件删除分离、结果和画廊 Lightbox。备份 ZIP 使用 `manifest.json`，为后续恢复导入保留结构。
+导出：
 
-## v1.6 恢复与批量管理
+```http
+POST /v1/backup/export
+```
 
-新增安全备份导入校验、批量图片管理、缩略图缓存、Agent session fork/重生成请求，以及对应 REST/OpenAPI 接口。备份导入先验证 manifest 和路径，不直接覆盖现有任务库。
+ZIP 包含：
 
-## v1.7 真正恢复与缩略图 API
+```text
+manifest.json
+images/
+任务历史
+图片索引
+收藏状态
+```
 
-备份导入支持 `apply: true`，安全恢复任务和图片索引；缩略图通过 `/v1/thumbnails` 受控读取，Web 画廊和 Lightbox 继续使用鉴权访问。
+恢复前先验证：
 
-## v1.8 Agent 与画廊增强
+```json
+{
+  "path": "/var/minis/workspace/gpt-image-playground/backup.zip",
+  "apply": false
+}
+```
 
-新增指定轮次重生成参数、备份 apply 恢复、受控缩略图 API、Web 画廊多选批量收藏/删除，以及 Lightbox 上一张/下一张导航。
+确认后应用：
+
+```json
+{
+  "path": "/var/minis/workspace/gpt-image-playground/backup.zip",
+  "apply": true,
+  "conflict": "skip"
+}
+```
+
+冲突策略：
+
+```text
+fail     有冲突立即失败
+skip     保留现有内容
+replace  用备份内容替换
+```
+
+恢复使用 staging、manifest 校验、路径穿越防护和失败文件回滚。
+
+## 安全
+
+- 默认只监听 localhost
+- 远程监听必须设置 Bearer Token
+- API Key 只在环境变量或权限 `600` 配置文件中
+- 拒绝远程图片 URL，防止 SSRF
+- 图片路径限制在 Minis 白名单目录
+- ZIP 拒绝绝对路径和 `../`
+- 删除默认只删除索引，不删除物理文件
+- OpenAPI、日志和状态接口不返回 Key
+
+## 测试
+
+```sh
+python3 -m compileall -q .
+python3 tests/test_api.py
+python3 scripts/playground.py --validate-profiles
+python3 scripts/playground.py --prompt "test" --dry-run
+python3 scripts/agent.py --prompt "test" --dry-run
+```
+
+GitHub Actions 自动执行编译、API、CLI 和 Agent 回归。
+
+## 项目结构
+
+```text
+scripts/
+├── agent.py
+├── api_server.py
+├── connection.py
+├── custom_provider.py
+├── fal_provider.py
+├── image_ops.py
+├── image_store.py
+├── playground.py
+├── responses_provider.py
+└── task_store.py
+web/index.html
+tests/test_api.py
+profiles.json
+presets.json
+connection.example.json
+```
+
+项目仓库为私有：
+
+```text
+https://github.com/joeshu/gpt-image-playground
+```
+
+## v1.9 变更
+
+- 备份恢复冲突策略：`fail`、`skip`、`replace`
+- `apply: true` 恢复失败回滚本次复制文件
+- Agent 指定轮次重生成：`--round-index N`
+- Web 画廊多选、批量收藏/删除和 Lightbox 导航
