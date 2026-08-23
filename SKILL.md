@@ -1,6 +1,6 @@
 ---
 name: gpt-image-playground
-version: 1.5.0
+version: 1.6.0
 description: GPT Image Playground 上层编排技能。基于 gpt-image-tool 底层执行器，支持自然语言文生图、图片编辑、多参考图融合、批量生成与风格预设。
 ---
 
@@ -417,3 +417,12 @@ v1.2 新增：
 - Web Lightbox：结果和画廊图片点击放大预览
 - 备份导出接口已保留 `manifest.json`，用于后续安全恢复
 - Agent session 保留分支元数据，可通过后续分支工具扩展
+
+## v1.6 恢复与批量管理
+
+- 备份校验导入：`POST /v1/backup/import`，只接受白名单 ZIP，校验 `manifest.json`、版本和 ZIP 路径穿越；当前返回验证摘要，不直接覆盖现有数据
+- 图片批量删除：`POST /v1/delete-images`，索引和物理文件删除分离
+- 缩略图缓存：画廊结果增加 `thumbnail_path`
+- Agent 分支：`POST /v1/agent/branch`；CLI 使用 `--branch-from session.json --branch-to branch.json`
+- Agent 轮次重生成请求：`POST /v1/agent/regenerate`；CLI 使用 `--regenerate-session session.json`
+- Web 结果和画廊支持 Lightbox

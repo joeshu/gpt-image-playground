@@ -237,6 +237,20 @@ def save_session(path, value):
     write_json(path, value)
 
 
+def fork_session(source, target, branch_id=None):
+    value=read_json(source)
+    if not isinstance(value,dict) or not value.get('conversation_id'): raise ValueError('无效 Agent session')
+    value['parent_session']=str(source); value['branch_id']=branch_id or ('branch-'+uuid.uuid4().hex[:8]); value['status']='forked'
+    write_json(target,value); return {'status':'forked','branch_id':value['branch_id'],'session_path':str(target)}
+
+
+def regenerate_session(source, target=None):
+    value=read_json(source)
+    if not isinstance(value,dict) or not value.get('conversation_id'): raise ValueError('无效 Agent session')
+    value['branch_id']='regen-'+uuid.uuid4().hex[:8]; value['parent_session']=str(source); value['status']='regenerate_requested'; value['rounds']=max(0,int(value.get('rounds',0))-1)
+    target=target or source; write_json(target,value); return {'status':'regenerate_requested','branch_id':value['branch_id'],'session_path':str(target)}
+
+
 def read_agent_history():
     if not AGENT_HISTORY.exists(): return []
     rows = []
@@ -356,12 +370,18 @@ def main():
     parser.add_argument('--history-get'); parser.add_argument('--history-limit', type=int, default=20)
     parser.add_argument('--agent-retry', type=int, default=1); parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--setup', action='store_true'); parser.add_argument('--setup-json'); parser.add_argument('--connection-status', action='store_true')
+    parser.add_argument('--branch-from'); parser.add_argument('--branch-to'); parser.add_argument('--regenerate-session');
     args = parser.parse_args()
     if args.max_rounds < 1 or args.max_rounds > MAX_ROUNDS: parser.error('--max-rounds 必须为 1-8')
     if args.agent_retry < 0 or args.agent_retry > 3: parser.error('--agent-retry 必须为 0-3')
     if args.history_limit < 1 or args.history_limit > 200: parser.error('--history-limit 必须为 1-200')
     if args.timeout < 10 or args.timeout > 3600: parser.error('--timeout 必须为 10-3600')
     try:
+        if args.branch_from:
+            if not args.branch_to: parser.error('--branch-from 必须配合 --branch-to')
+            print(json.dumps(fork_session(args.branch_from,args.branch_to),ensure_ascii=False,indent=2)); return
+        if args.regenerate_session:
+            print(json.dumps(regenerate_session(args.regenerate_session,args.branch_to),ensure_ascii=False,indent=2)); return
         if args.setup_json:
             print(json.dumps(setup_from_json(read_json(args.setup_json)), ensure_ascii=False, indent=2)); return
         if args.connection_status:

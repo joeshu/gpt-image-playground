@@ -1,4 +1,4 @@
-# GPT Image Playground v1.5
+# GPT Image Playground v1.6
 
 ## 首次使用配置
 
@@ -179,3 +179,7 @@ GET /v1/history?q=海报&status=completed&profile=default
 ## v1.5 管理与恢复
 
 新增图片批量删除、索引删除/文件删除分离、结果和画廊 Lightbox。备份 ZIP 使用 `manifest.json`，为后续恢复导入保留结构。
+
+## v1.6 恢复与批量管理
+
+新增安全备份导入校验、批量图片管理、缩略图缓存、Agent session fork/重生成请求，以及对应 REST/OpenAPI 接口。备份导入先验证 manifest 和路径，不直接覆盖现有任务库。

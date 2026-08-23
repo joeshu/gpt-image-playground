@@ -2,7 +2,9 @@
 """Image index and favorites built on the task store database."""
 import hashlib
 import json
+import os
 import sqlite3
+import subprocess
 import time
 from pathlib import Path
 from task_store import DB, connect
@@ -40,11 +42,19 @@ def index_result(result, db=DB):
     return count
 
 
+def thumbnail(path, width=320):
+    source=Path(path).resolve(); root=source.parent / '.thumbs'; root.mkdir(parents=True, exist_ok=True); target=root / (hashlib.sha256(str(source).encode()).hexdigest()[:24]+'.jpg')
+    if not target.exists():
+        try: subprocess.run(['convert',str(source),'-thumbnail',f'{int(width)}x{int(width)}>','-strip',str(target)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
+        except (OSError, subprocess.SubprocessError): return str(source)
+    return str(target)
+
+
 def list_images(favorite=False, limit=50, db=DB):
     init(db); limit=max(1,min(int(limit),200))
     with connect(db) as cx:
         rows=cx.execute('SELECT * FROM images'+(' WHERE favorite=1' if favorite else '')+' ORDER BY created_at DESC LIMIT ?', (limit,)).fetchall()
-    return [dict(row) for row in rows]
+    return [dict(row) | {'thumbnail_path': thumbnail(row['path']) if Path(row['path']).is_file() else row['path']} for row in rows]
 
 
 def delete_images(image_ids, remove_files=False, db=DB):

@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '1.4.0'
+VERSION = '1.6.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
 API_WORK = WORK / 'api'
@@ -354,6 +354,28 @@ def make_backup():
     return target
 
 
+def extract_manifest(zip_path):
+    with zipfile.ZipFile(zip_path) as z:
+        names=set(z.namelist())
+        if 'manifest.json' not in names: raise ValueError('备份缺少 manifest.json')
+        manifest=json.loads(z.read('manifest.json').decode('utf-8'))
+        if not isinstance(manifest,dict) or manifest.get('version') != 1: raise ValueError('不支持的备份版本')
+        for name in names:
+            if name.startswith('/') or '..' in Path(name).parts: raise ValueError('备份包含不安全路径')
+        return manifest, names
+
+
+def restore_backup(zip_path):
+    manifest,names=extract_manifest(zip_path); restored=0
+    for item in manifest.get('gallery', []):
+        path=item.get('path')
+        if not isinstance(path,str): continue
+        image_name='images/'+Path(path).name
+        if image_name in names:
+            restored += 1
+    return {'status':'validated','version':manifest['version'],'tasks':len(manifest.get('history',[])),'images':restored}
+
+
 def safe_download_path(raw_path, allow_zip=False):
     path = Path(raw_path).expanduser().resolve()
     if not any(path == root or root in path.parents for root in ALLOWED_ROOTS):
@@ -376,6 +398,10 @@ OPENAPI = {
         '/v1/favorites': {'get': {'responses': {'200': {'description': 'Favorite images'}}}},
         '/v1/favorite': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Favorite updated'}}}},
         '/v1/backup/export': {'post': {'responses': {'200': {'description': 'Backup ZIP'}}}},
+        '/v1/delete-images': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Deleted'}}}},
+        '/v1/agent/branch': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Forked'}}}},
+        '/v1/agent/regenerate': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Regeneration requested'}}}},
+        '/v1/backup/import': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Validated backup'}}}},
         '/v1/generate': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
         '/v1/batch': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
         '/v1/agent': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Result'}, '202': {'description': 'Job'}}}},
@@ -513,8 +539,23 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self.read_body()
+            if parsed.path == '/v1/agent/branch':
+                source=payload.get('session_path'); target=payload.get('target_path')
+                if not source or not target: raise ValueError('缺少 session_path 或 target_path')
+                from agent import fork_session
+                return self.send_json(200, fork_session(source,target,payload.get('branch_id')))
+            if parsed.path == '/v1/agent/regenerate':
+                source=payload.get('session_path')
+                if not source: raise ValueError('缺少 session_path')
+                from agent import regenerate_session
+                return self.send_json(200, regenerate_session(source,payload.get('target_path')))
             if parsed.path == '/v1/setup':
                 return self.send_json(200, setup_from_json(payload))
+            if parsed.path == '/v1/backup/import':
+                archive=payload.get('path')
+                if not isinstance(archive,str): raise ValueError('缺少备份文件路径')
+                archive=safe_download_path(archive, allow_zip=True)
+                return self.send_json(200, restore_backup(archive))
             if parsed.path == '/v1/delete-images':
                 ids=payload.get('image_ids') or ([payload.get('image_id')] if payload.get('image_id') else [])
                 return self.send_json(200, delete_images(ids, bool(payload.get('remove_files', False))))
