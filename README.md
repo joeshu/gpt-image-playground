@@ -10,7 +10,7 @@ Claude / Codex / Gemini / 自定义 Agent / CLI / Web
  Images API / Responses API / fal.ai / Custom Provider
 ```
 
-当前版本：`2.3.0`
+当前版本：`2.4.0`
 
 ## 适用场景
 
@@ -392,3 +392,32 @@ python3 scripts/playground.py \
 ```
 
 `omit_model` 只用于明确要求不发送模型字段的接口。它不能和显式模型同时指定。自定义模型 ID 允许使用，但必须是安全的单行模型标识；请求前会拒绝空格、控制字符和超长值。
+
+## 双执行模式
+
+技能同时支持两种执行模式：
+
+```text
+native  → Provider 模块直接执行 HTTP Images API
+script  → scripts/generate.py 执行器
+auto    → 默认模式，优先 native，失败后回退 script
+```
+
+CLI：
+
+```sh
+python3 scripts/playground.py --execution-mode native --model gpt-5.6-sol --prompt "一张海报"
+python3 scripts/playground.py --execution-mode script --model gpt-image-2 --prompt "一张海报"
+```
+
+任务 JSON 或 REST：
+
+```json
+{
+  "prompt": "一张海报",
+  "model": "gpt-5.6-sol",
+  "execution_mode": "native"
+}
+```
+
+`native` 目前用于 Images API；Responses、fal.ai、Custom Provider 继续由各自 Provider 适配器执行。`script` 始终使用主技能内置的 `scripts/generate.py`，不依赖外部 `gpt-image-tool`。

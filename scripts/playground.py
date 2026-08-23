@@ -344,6 +344,7 @@ def build_task(source, cli, presets, current_id):
         'n': n,
         'images': images,
         'api_mode': source.get('api_mode') or profile.get('api_mode') or 'images',
+        'execution_mode': source.get('execution_mode') or cli.execution_mode or profile.get('execution_mode') or 'auto',
         'background': source.get('background') or source.get('transparent_background') or profile.get('background') or 'auto',
         'moderation': source.get('moderation') or cli.moderation or profile.get('moderation') or 'auto',
     }
@@ -368,8 +369,8 @@ def build_task(source, cli, presets, current_id):
     env_value = connection(profile)
     if not os.environ.get(key_env) and not os.environ.get('GPT_IMAGE_API_KEY') and not env_value.get('key') and not cli.dry_run:
         raise ValueError(f'首次使用请先配置图片服务器地址和 API Key：--setup 或 POST /v1/setup；缺少环境变量 {key_env}')
-    if env_value.get('endpoint') and not endpoint:
-        result['endpoint'] = env_value['endpoint']
+    if endpoint:
+        result['endpoint'] = endpoint
     if manifest:
         result['provider_manifest'] = manifest
         result['profile_config'] = profile
@@ -578,7 +579,7 @@ def main():
     parser.add_argument('--background', choices=['auto', 'transparent', 'opaque'])
     parser.add_argument('--moderation', choices=['auto', 'low', 'medium', 'high'])
     parser.add_argument('--output-compression', type=int)
-    parser.add_argument('--model'); parser.add_argument('--omit-model', action='store_true'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
+    parser.add_argument('--model'); parser.add_argument('--omit-model', action='store_true'); parser.add_argument('--execution-mode', choices=['auto', 'native', 'script'], default='auto'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
     parser.add_argument('--poll-timeout', type=int, default=300)
     parser.add_argument('--style'); parser.add_argument('--endpoint'); parser.add_argument('--retry', type=int, default=0)
     parser.add_argument('--validate-profiles', action='store_true')

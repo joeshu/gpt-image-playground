@@ -17,7 +17,7 @@ def check(condition, message):
 
 
 def main():
-    check(api.VERSION == '2.3.0', 'version')
+    check(api.VERSION == '2.4.0', 'version')
     from pathlib import Path as _Path
     import json as _json
     catalog = _json.loads((_Path('/var/minis/skills/gpt-image-playground/model_catalog.json')).read_text())

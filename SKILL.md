@@ -1,7 +1,7 @@
 ---
 name: gpt-image-playground
 description: 可被其他 AI 工具调用的图片生成编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job、Web 工作台、首次配置、历史、画廊、收藏、备份恢复和安全文件管理。用户要求生成/编辑/批量处理图片，或需要图片 Provider、Agent、API、Web 工作台时使用。
-version: 2.3.0
+version: 2.4.0
 ---
 
 # GPT Image Playground 技能
@@ -466,3 +466,7 @@ Dry Run 会检查最终请求文件，确认模型字段是否按选择真实发
 选择优先级：`task.model > --model > Profile.model`。`omit_model` 只代表最终 JSON 完全省略 `model`，不能与显式模型并用。
 
 `GET /v1/models` 返回全局目录和各 Profile 的可用模型，便于 Web 或其他 AI 工具动态选择，不需要硬编码模型列表。
+
+## 双执行模式
+
+`execution_mode` 可选：`native`、`script`、`auto`。`native` 由 Images Provider 模块直接发 HTTP 请求；`script` 调用主技能自带 `scripts/generate.py`；`auto` 优先 native，失败后回退 script。Responses、fal.ai、Custom 仍通过各自适配器运行。
