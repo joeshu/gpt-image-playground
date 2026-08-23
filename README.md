@@ -10,7 +10,7 @@ Claude / Codex / Gemini / 自定义 Agent / CLI / Web
  Images API / Responses API / fal.ai / Custom Provider
 ```
 
-当前版本：`2.0.2`
+当前版本：`2.0.3`
 
 ## 适用场景
 
@@ -326,3 +326,32 @@ https://github.com/joeshu/gpt-image-playground
 - `apply: true` 恢复失败回滚本次复制文件
 - Agent 指定轮次重生成：`--round-index N`
 - Web 画廊多选、批量收藏/删除和 Lightbox 导航
+
+## 原生默认模型接口
+
+部分图片接口会在服务端选择默认模型，不接受或不需要 `model` 字段。v2.0.3 新增 `omit_model`：
+
+```sh
+python3 scripts/playground.py \
+  --profile default \
+  --omit-model \
+  --prompt "一只橘猫头像"
+```
+
+任务 JSON 或 REST：
+
+```json
+{
+  "prompt": "一只橘猫头像",
+  "omit_model": true
+}
+```
+
+启用后最终请求体不包含 `model`，不是发送空字符串。默认关闭，标准 OpenAI-compatible 接口仍发送配置中的模型。当前新接口已验证支持此模式：真实请求 HTTP 200 并成功保存图片。
+
+与原库相比，本技能的本地编排层额外支持：
+
+- 服务端默认模型模式
+- Dry Run 校验最终请求体是否真的省略 `model`
+- CLI、REST、任务 JSON、Profile 统一配置
+- 生成结果自动写入历史、SQLite 画廊和缩略图

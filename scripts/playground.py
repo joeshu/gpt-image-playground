@@ -302,7 +302,8 @@ def build_task(source, cli, presets, current_id):
         'size': size,
         'quality': quality,
         'output_format': 'jpeg' if output_format == 'jpg' else output_format,
-        'model': source.get('model') or cli.model or profile.get('model') or 'gpt-image-2',
+        'model': None if (source.get('omit_model') or cli.omit_model or profile.get('omit_model')) else (source.get('model') or cli.model or profile.get('model') or 'gpt-image-2'),
+        'omit_model': bool(source.get('omit_model') or cli.omit_model or profile.get('omit_model')),
         'n': n,
         'images': images,
         'api_mode': source.get('api_mode') or profile.get('api_mode') or 'images',
@@ -439,7 +440,7 @@ def execute_one(run_task, current_id, dry_run, retries):
             result = decorate_result(parse_json_output(completed.stdout), current_id)
             result = postprocess_result(result, run_task)
             result['attempts'] = attempts
-            result['actual_params'] = {key: run_task.get(key) for key in ('model', 'size', 'quality', 'output_format', 'n', 'background', 'moderation', 'api_mode') if run_task.get(key) is not None}
+            result['actual_params'] = {key: run_task.get(key) for key in ('model', 'omit_model', 'size', 'quality', 'output_format', 'n', 'background', 'moderation', 'api_mode') if run_task.get(key) is not None}
             result['revised_prompts'] = [item.get('revised_prompt') for item in result.get('saved_images', []) if item.get('revised_prompt')]
             result['status'] = 'dry_run' if dry_run else 'completed'
             return result
@@ -531,7 +532,7 @@ def main():
     parser.add_argument('--export-zip')
     parser.add_argument('--size', default='1:1')
     parser.add_argument('--quality', default='low'); parser.add_argument('--output-format', default='png')
-    parser.add_argument('--model'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
+    parser.add_argument('--model'); parser.add_argument('--omit-model', action='store_true'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
     parser.add_argument('--poll-timeout', type=int, default=300)
     parser.add_argument('--style'); parser.add_argument('--endpoint'); parser.add_argument('--retry', type=int, default=0)
     parser.add_argument('--validate-profiles', action='store_true')

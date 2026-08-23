@@ -17,7 +17,7 @@ def check(condition, message):
 
 
 def main():
-    check(api.VERSION == '2.0.2', 'version')
+    check(api.VERSION == '2.0.3', 'version')
     from task_store import record, search
     with tempfile.TemporaryDirectory() as temp:
         db = Path(temp) / 'tasks.sqlite3'; record({'task_id':'t1','created_at':'2026','status':'completed','prompt':'lake','profile':'p'}, db); check(search('lake', path=db)[0]['task_id'] == 't1', 'task store')
@@ -33,7 +33,7 @@ def main():
     check(api.safe_download_path(str(image)).resolve() == image.resolve(), 'download path')
     try: api.safe_download_path('/etc/passwd'); raise AssertionError('download path accepted')
     except ValueError: pass
-    check(set(json.loads((ROOT / 'profiles.json').read_text())['profiles'][0]) <= {'id', 'name', 'provider', 'endpoint', 'model', 'api_key_env', 'agent_endpoint', 'baseUrl', 'base_url'}, 'profile schema')
+    check(set(json.loads((ROOT / 'profiles.json').read_text())['profiles'][0]) <= {'id', 'name', 'provider', 'endpoint', 'model', 'omit_model', 'api_key_env', 'agent_endpoint', 'baseUrl', 'base_url'}, 'profile schema')
     with tempfile.TemporaryDirectory() as temp:
         old_config, old_work = connection.CONFIG, connection.WORK
         connection.CONFIG, connection.WORK = Path(temp) / 'connection.json', Path(temp)
