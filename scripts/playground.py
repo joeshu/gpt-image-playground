@@ -5,6 +5,7 @@ import concurrent.futures
 import getpass
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -22,16 +23,28 @@ try:
     from image_store import index_result
 except ImportError:
     from scripts.image_store import index_result
+try:
+    from provider_base import ProviderContext, ProviderError, ProviderRegistry, provider_environment
+except ImportError:
+    from scripts.provider_base import ProviderContext, ProviderError, ProviderRegistry, provider_environment
 
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 FALLBACK_ROOT = Path('/var/minis/workspace/gpt-image-playground-skill')
-LOWER = Path('/var/minis/skills/gpt-image-tool/scripts/generate.py')
-CUSTOM = Path('/var/minis/skills/gpt-image-playground/scripts/custom_provider.py')
-RESPONSES = Path('/var/minis/skills/gpt-image-playground/scripts/responses_provider.py')
-FAL = Path('/var/minis/skills/gpt-image-playground/scripts/fal_provider.py')
 BASE = ROOT if ROOT.exists() else FALLBACK_ROOT
 PRESETS = BASE / 'presets.json'
 PROFILES = BASE / 'profiles.json'
+MODEL_CATALOG = BASE / 'model_catalog.json'
+
+
+def model_catalog():
+    if not MODEL_CATALOG.exists():
+        return []
+    data = read_json(MODEL_CATALOG)
+    return [item.get('id') for item in data.get('models', []) if isinstance(item, dict) and item.get('id')]
+
+
+def valid_model_id(value):
+    return isinstance(value, str) and bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}', value))
 OUT = Path('/var/minis/attachments/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
 HISTORY = WORK / 'history.jsonl'
@@ -165,6 +178,15 @@ def validate_profiles_config():
         provider = profile.get('provider', 'openai-compatible')
         if provider not in ('openai', 'openai-compatible', 'fal', 'fal.ai') and provider not in providers:
             raise ValueError(f'Profile 引用不存在的供应商: {provider}')
+        if profile.get('model') is not None and not valid_model_id(profile.get('model')):
+            raise ValueError(f'Profile {profile["id"]} 的 model 无效')
+        models = profile.get('models', model_catalog())
+        if not isinstance(models, list) or any(not valid_model_id(item) for item in models):
+            raise ValueError(f'Profile {profile["id"]} 的 models 必须是模型 ID 数组')
+        if profile.get('model') and models and profile['model'] not in models:
+            raise ValueError(f'Profile {profile["id"]} 的默认 model 不在 models 目录中')
+        if profile.get('omit_model') and profile.get('model'):
+            raise ValueError(f'Profile {profile["id"]} 不能同时设置 model 和 omit_model')
     default = config.get('default_profile')
     if default and default not in ids:
         raise ValueError(f'default_profile 不存在: {default}')
@@ -294,6 +316,21 @@ def build_task(source, cli, presets, current_id):
     if output_format not in ('png', 'webp', 'jpeg', 'jpg'): raise ValueError('output_format 必须是 png、webp 或 jpeg')
     size = source.get('size') or cli.size
     if size == 'auto': size = 'auto'
+    explicit_model = source.get('model') if 'model' in source else cli.model
+    explicit_omit = source.get('omit_model') if 'omit_model' in source else (True if cli.omit_model else None)
+    if explicit_model is not None and not valid_model_id(explicit_model):
+        raise ValueError('model 必须是 1-128 位安全模型 ID')
+    if explicit_model and explicit_omit:
+        raise ValueError('model 与 omit_model 不能同时指定')
+    if explicit_model is not None:
+        model = explicit_model
+        omit_model = False
+    elif explicit_omit is not None:
+        omit_model = bool(explicit_omit)
+        model = None if omit_model else (profile.get('model') or 'gpt-image-2')
+    else:
+        omit_model = bool(profile.get('omit_model'))
+        model = None if omit_model else (profile.get('model') or 'gpt-image-2')
     result = {
         'prompt': prompt,
         'profile': profile.get('id'),
@@ -302,14 +339,19 @@ def build_task(source, cli, presets, current_id):
         'size': size,
         'quality': quality,
         'output_format': 'jpeg' if output_format == 'jpg' else output_format,
-        'model': None if (source.get('omit_model') or cli.omit_model or profile.get('omit_model')) else (source.get('model') or cli.model or profile.get('model') or 'gpt-image-2'),
-        'omit_model': bool(source.get('omit_model') or cli.omit_model or profile.get('omit_model')),
+        'model': model,
+        'omit_model': omit_model,
         'n': n,
         'images': images,
         'api_mode': source.get('api_mode') or profile.get('api_mode') or 'images',
         'background': source.get('background') or source.get('transparent_background') or profile.get('background') or 'auto',
-        'moderation': source.get('moderation') or profile.get('moderation') or 'auto',
+        'moderation': source.get('moderation') or cli.moderation or profile.get('moderation') or 'auto',
     }
+    if source.get('background') or cli.background or profile.get('background'):
+        result['background'] = source.get('background') or cli.background or profile.get('background')
+    compression = source.get('output_compression') if source.get('output_compression') is not None else (cli.output_compression if cli.output_compression is not None else profile.get('output_compression'))
+    if compression is not None:
+        result['output_compression'] = max(0, min(100, int(compression)))
     if mask:
         result['mask'] = mask
     transparent = source.get('transparent_background') or cli.transparent_background
@@ -421,36 +463,37 @@ def execute_one(run_task, current_id, dry_run, retries):
     WORK.mkdir(parents=True, exist_ok=True)
     task_path = WORK / f'{current_id}-orchestrator-task.json'
     write_json(task_path, run_task)
-    runner = RESPONSES if run_task.get('api_mode') == 'responses' else (FAL if run_task.get('provider') in ('fal', 'fal.ai') else (CUSTOM if run_task.get('provider') not in ('openai', 'openai-compatible', None) else LOWER))
-    command = [sys.executable, str(runner), '--task', str(task_path), '--out-prefix', current_id,
-               '--attachments-dir', str(OUT), '--workspace-dir', str(WORK)]
-    process_env = apply_environment(os.environ.copy(), run_task)
-    key_env = run_task.get('api_key_env', 'GPT_IMAGE_API_KEY')
-    if process_env.get(key_env) and not process_env.get('GPT_IMAGE_API_KEY'):
-        process_env['GPT_IMAGE_API_KEY'] = process_env[key_env]
-    if dry_run:
-        command.append('--dry-run')
+    registry = ProviderRegistry(BASE / 'scripts', Path('/var/minis/skills/gpt-image-tool/scripts'))
+    process_env = provider_environment(apply_environment(os.environ.copy(), run_task), run_task)
+    context = ProviderContext(task=run_task, task_path=task_path, output_dir=OUT,
+                              workspace_dir=WORK, dry_run=dry_run, task_id=current_id, retries=retries)
     attempts = 0
-    last = None
+    last_error = None
     while attempts <= retries:
         attempts += 1
-        completed = subprocess.run(command, text=True, capture_output=True, env=process_env)
-        last = completed
-        if completed.returncode == 0:
-            result = decorate_result(parse_json_output(completed.stdout), current_id)
+        try:
+            stdout = registry.run(context, process_env)
+            result = decorate_result(parse_json_output(stdout), current_id)
             result = postprocess_result(result, run_task)
             result['attempts'] = attempts
-            result['actual_params'] = {key: run_task.get(key) for key in ('model', 'omit_model', 'size', 'quality', 'output_format', 'n', 'background', 'moderation', 'api_mode') if run_task.get(key) is not None}
+            result['actual_params'] = {key: run_task.get(key) for key in ('model', 'omit_model', 'size', 'quality', 'output_format', 'n', 'background', 'moderation', 'output_compression', 'api_mode') if run_task.get(key) is not None}
             result['revised_prompts'] = [item.get('revised_prompt') for item in result.get('saved_images', []) if item.get('revised_prompt')]
             result['status'] = 'dry_run' if dry_run else 'completed'
             return result
-        if not should_retry(completed.returncode, completed.stderr) or attempts > retries:
+        except ProviderError as exc:
+            last_error = exc
+            if attempts > retries or not should_retry(exc.returncode or 1, str(exc)):
+                break
+            time.sleep(min(2 ** (attempts - 1), 8))
+        except (OSError, ValueError) as exc:
+            last_error = ProviderError(str(exc), code='provider_setup_error')
             break
-        time.sleep(min(2 ** (attempts - 1), 8))
     error = {
         'task_id': current_id, 'status': 'failed', 'attempts': attempts,
-        'returncode': last.returncode if last else 1,
-        'error': (last.stderr or last.stdout or '底层执行器失败').strip()[:2000],
+        'returncode': last_error.returncode if last_error and last_error.returncode else 1,
+        'error': str(last_error or '底层 Provider 执行失败')[:2000],
+        'provider': last_error.provider if last_error else None,
+        'error_code': last_error.code if last_error else 'provider_error',
         'task_file': str(task_path), 'task_file_link': minis_link(task_path),
     }
     return error
@@ -532,6 +575,9 @@ def main():
     parser.add_argument('--export-zip')
     parser.add_argument('--size', default='1:1')
     parser.add_argument('--quality', default='low'); parser.add_argument('--output-format', default='png')
+    parser.add_argument('--background', choices=['auto', 'transparent', 'opaque'])
+    parser.add_argument('--moderation', choices=['auto', 'low', 'medium', 'high'])
+    parser.add_argument('--output-compression', type=int)
     parser.add_argument('--model'); parser.add_argument('--omit-model', action='store_true'); parser.add_argument('--profile'); parser.add_argument('--n', type=int, default=1)
     parser.add_argument('--poll-timeout', type=int, default=300)
     parser.add_argument('--style'); parser.add_argument('--endpoint'); parser.add_argument('--retry', type=int, default=0)

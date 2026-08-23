@@ -1,0 +1,8 @@
+{
+  "models": [
+    {"id": "gpt-image-2", "name": "GPT Image 2", "provider_hint": "images"},
+    {"id": "gpt-5.6-sol", "name": "GPT 5.6 Sol", "provider_hint": "images"},
+    {"id": "gpt-5.6-terra", "name": "GPT 5.6 Terra", "provider_hint": "images"},
+    {"id": "gpt-5.6-luna", "name": "GPT 5.6 Luna", "provider_hint": "images"}
+  ]
+}

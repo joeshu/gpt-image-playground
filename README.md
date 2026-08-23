@@ -10,7 +10,7 @@ Claude / Codex / Gemini / 自定义 Agent / CLI / Web
  Images API / Responses API / fal.ai / Custom Provider
 ```
 
-当前版本：`2.0.3`
+当前版本：`2.3.0`
 
 ## 适用场景
 
@@ -329,7 +329,18 @@ https://github.com/joeshu/gpt-image-playground
 
 ## 原生默认模型接口
 
-部分图片接口会在服务端选择默认模型，不接受或不需要 `model` 字段。v2.0.3 新增 `omit_model`：
+原生接口仍然可以、也通常需要选择具体模型，例如 `gpt-5.6-sol`。`omit_model` 只是特殊兼容开关：只有接口明确要求服务端自动选模型时，才完全省略 `model`。
+
+选择模型：
+
+```sh
+python3 scripts/playground.py \
+  --profile default \
+  --model gpt-5.6-sol \
+  --prompt "一只橘猫头像"
+```
+
+最终请求体会包含 `model: gpt-5.6-sol`。只有需要服务端自动选模型时才使用：
 
 ```sh
 python3 scripts/playground.py \
@@ -338,20 +349,46 @@ python3 scripts/playground.py \
   --prompt "一只橘猫头像"
 ```
 
-任务 JSON 或 REST：
+`model` 与 `omit_model` 同时显式指定会报错；显式模型会覆盖 Profile 的 `omit_model`。Dry Run 会校验最终请求体。
+## 模型配置
 
-```json
-{
-  "prompt": "一只橘猫头像",
-  "omit_model": true
-}
+模型由 Profile 和模型目录共同管理，不硬编码到单一 Provider：
+
+```text
+默认模型：Profile.model
+可选目录：Profile.models
+全局目录：model_catalog.json
+单次覆盖：--model / task.model / REST model
 ```
 
-启用后最终请求体不包含 `model`，不是发送空字符串。默认关闭，标准 OpenAI-compatible 接口仍发送配置中的模型。当前新接口已验证支持此模式：真实请求 HTTP 200 并成功保存图片。
+当前内置推荐模型：
 
-与原库相比，本技能的本地编排层额外支持：
+```text
+gpt-image-2
+gpt-5.6-sol
+gpt-5.6-terra
+gpt-5.6-luna
+```
 
-- 服务端默认模型模式
-- Dry Run 校验最终请求体是否真的省略 `model`
-- CLI、REST、任务 JSON、Profile 统一配置
-- 生成结果自动写入历史、SQLite 画廊和缩略图
+查看模型目录：
+
+```http
+GET /v1/models
+```
+
+单次选择模型：
+
+```sh
+python3 scripts/playground.py \
+  --profile default \
+  --model gpt-5.6-terra \
+  --prompt "一张电影海报"
+```
+
+模型选择优先级：
+
+```text
+任务 model > CLI --model > Profile.model
+```
+
+`omit_model` 只用于明确要求不发送模型字段的接口。它不能和显式模型同时指定。自定义模型 ID 允许使用，但必须是安全的单行模型标识；请求前会拒绝空格、控制字符和超长值。

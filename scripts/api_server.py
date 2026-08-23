@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = '2.0.3'
+VERSION = '2.3.0'
 API_MIN_CLIENT = '1.0.0'
 ROOT = Path('/var/minis/skills/gpt-image-playground')
 WORK = Path('/var/minis/workspace/gpt-image-playground')
@@ -46,6 +46,7 @@ API_WORK = WORK / 'api'
 PLAYGROUND = ROOT / 'scripts' / 'playground.py'
 AGENT = ROOT / 'scripts' / 'agent.py'
 PROFILES = ROOT / 'profiles.json'
+MODEL_CATALOG = ROOT / 'model_catalog.json'
 MAX_BODY = 12 * 1024 * 1024
 MAX_TIMEOUT = 1200
 ALLOWED_ROOTS = (Path('/var/minis/attachments'), Path('/var/minis/workspace'), Path('/var/minis/mounts'))
@@ -413,7 +414,7 @@ OPENAPI = {
     'openapi': '3.0.3', 'info': {'title': 'GPT Image Playground API', 'version': VERSION},
     'paths': {
         '/v1/version': {'get': {'responses': {'200': {'description': 'Version compatibility'}}}},
-        '/v1/profiles': {'get': {'responses': {'200': {'description': 'Profiles'}}}},
+        '/v1/models': {'get': {'responses': {'200': {'description': 'Available models'}}}},
         '/v1/history': {'get': {'responses': {'200': {'description': 'History'}}}},
         '/v1/setup': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Configured'}}}},
         '/v1/setup/status': {'get': {'responses': {'200': {'description': 'Configuration status'}}}},
@@ -438,7 +439,7 @@ OPENAPI = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'GPTImagePlaygroundAPI/2.0.3'
+    server_version = 'GPTImagePlaygroundAPI/2.3.0'
 
     def log_message(self, fmt, *args):
         sys.stderr.write('[playground-api] ' + (fmt % args) + '\n')
@@ -504,8 +505,12 @@ class Handler(BaseHTTPRequestHandler):
                 config = read_json(PROFILES)
                 profiles = []
                 for item in config.get('profiles', []):
-                    profiles.append({key: item.get(key) for key in ('id', 'name', 'provider', 'model', 'omit_model', 'agent_endpoint')})
+                    profiles.append({key: item.get(key) for key in ('id', 'name', 'provider', 'model', 'models', 'omit_model', 'agent_endpoint')})
                 return self.send_json(200, {'default_profile': config.get('default_profile'), 'profiles': profiles})
+            if parsed.path == '/v1/models':
+                config = read_json(PROFILES)
+                catalog = read_json(MODEL_CATALOG) if MODEL_CATALOG.exists() else {'models': []}
+                return self.send_json(200, {'models': catalog.get('models', []), 'profiles': [{'id': item.get('id'), 'model': item.get('model'), 'models': item.get('models', [])} for item in config.get('profiles', [])]})
             if parsed.path.startswith('/v1/jobs/') and parsed.path.endswith('/events'):
                 job_id = parsed.path.split('/')[-2]
                 if not get_job(job_id): return self.send_error(404, 'job_not_found', 'Job 不存在')
