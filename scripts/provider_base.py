@@ -4,10 +4,13 @@ from dataclasses import dataclass
 from pathlib import Path
 import base64
 import importlib.util
+import io
 import json
+import mimetypes
 import os
 import subprocess
 import sys
+import urllib.request
 
 
 class ProviderError(RuntimeError):
@@ -62,6 +65,41 @@ class ScriptProvider(Provider):
         return completed.stdout
 
 
+def _multipart_value(value):
+    if isinstance(value, str) and value.startswith('data:'):
+        header, encoded = value.split(',', 1)
+        mime = header[5:].split(';', 1)[0] or 'application/octet-stream'
+        return base64.b64decode(encoded), mime
+    if isinstance(value, str) and value.startswith(('http://', 'https://')):
+        with urllib.request.urlopen(value, timeout=300) as response:
+            return response.read(), response.headers.get_content_type() or 'application/octet-stream'
+    path = Path(value)
+    if not path.is_file():
+        raise ProviderError(f'图片文件不存在: {value}', provider='images-native', code='missing_image')
+    mime, _ = mimetypes.guess_type(str(path))
+    return path.read_bytes(), mime or 'application/octet-stream'
+
+
+def _multipart_request(url, api_key, fields, files, timeout):
+    boundary = '----gip-' + os.urandom(12).hex()
+    chunks = []
+    for key, value in fields.items():
+        chunks.extend([f'--{boundary}\\r\\n'.encode(), f'Content-Disposition: form-data; name="{key}"\\r\\n\\r\\n'.encode(), str(value).encode(), b'\\r\\n'])
+    for field, filename, content, mime in files:
+        chunks.extend([f'--{boundary}\\r\\n'.encode(), f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\\r\\n'.encode(), f'Content-Type: {mime}\\r\\n\\r\\n'.encode(), content, b'\\r\\n'])
+    chunks.append(f'--{boundary}--\\r\\n'.encode())
+    request = urllib.request.Request(url, data=b''.join(chunks), method='POST', headers={'Authorization': f'Bearer {api_key}', 'Content-Type': f'multipart/form-data; boundary={boundary}', 'Accept': 'application/json'})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read()
+    except Exception as exc:
+        raise ProviderError(f'Native multipart 请求失败: {exc}', provider='images-native', code='native_request_failed') from exc
+    try:
+        return json.loads(raw.decode('utf-8'))
+    except Exception as exc:
+        raise ProviderError('Native multipart 返回非 JSON', provider='images-native', code='invalid_response') from exc
+
+
 class NativeImagesProvider(Provider):
     name = 'images-native'
     mode = 'native'
@@ -111,14 +149,32 @@ class NativeImagesProvider(Provider):
             payload['mask'] = g.normalize_image_inputs([task['mask']])[0]
         request_path = context.workspace_dir / f'{context.task_id}-native-request.json'
         request_path.parent.mkdir(parents=True, exist_ok=True)
-        request_path.write_text(json.dumps({**payload, 'endpoint': endpoint, 'mode': 'native'}, ensure_ascii=False, indent=2))
+        edit_values = task.get('images') or task.get('image_urls') or []
+        is_edit = bool(edit_values or task.get('mask'))
+        request_endpoint = endpoint
+        if is_edit and request_endpoint.rstrip('/').endswith('/images/generations'):
+            request_endpoint = request_endpoint.rstrip('/')[:-len('generations')] + 'edits'
+        request_path.write_text(json.dumps({**payload, 'endpoint': request_endpoint, 'mode': 'native', 'request_type': 'multipart' if is_edit else 'json'}, ensure_ascii=False, indent=2))
         if context.dry_run:
+
             return json.dumps({'status': 'dry_run', 'task_id': context.task_id, 'endpoint': endpoint,
                                'model': model if not task.get('omit_model') else None,
                                'omit_model': bool(task.get('omit_model')), 'request_file': str(request_path)}, ensure_ascii=False)
         try:
-            response = g.request_json('POST', endpoint, g.build_headers(api_key), payload=payload,
-                                      timeout=int(task.get('request_timeout', 900)), debug_prefix=request_path)
+            timeout = int(task.get('request_timeout', 900))
+            if is_edit:
+                fields = {key: value for key, value in payload.items() if key not in ('image_urls', 'mask')}
+                files = []
+                for index, value in enumerate(edit_values):
+                    content, mime = _multipart_value(value)
+                    files.append(('image[]', f'image-{index + 1}', content, mime))
+                if task.get('mask'):
+                    content, mime = _multipart_value(task['mask'])
+                    files.append(('mask', 'mask', content, mime))
+                response = _multipart_request(request_endpoint, api_key, fields, files, timeout)
+            else:
+                response = g.request_json('POST', endpoint, g.build_headers(api_key), payload=payload,
+                                          timeout=timeout, debug_prefix=request_path)
             saved = g.decode_b64_images(response, context.output_dir, context.task_id, task.get('output_format', 'png'))
             if not saved:
                 raise ProviderError('Native Images Provider 返回中没有图片数据', provider=self.name, code='empty_result')
