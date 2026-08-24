@@ -1,6 +1,6 @@
 # GPT Image Playground 测试案例
 
-版本：`2.7.1`
+版本：`2.7.2`
 
 ## 测试原则
 
@@ -59,6 +59,31 @@ API tests: 12 passed
 provider_registry_tests: ok
 doctor: ready
 ```
+
+## 真实 Provider 验收记录
+
+2026-08-24 使用已安装技能的 default Profile 完成真实测试：
+
+### 真实文生图：通过
+
+- 模式：`auto`
+- Provider：`images-native`
+- 参数：`n=1`、`quality=low`、`size=1:1`
+- 结果：返回完整图片、`saved_images`、`revised_prompt` 和耗时信息。
+
+### 真实参考图 + Alpha 遮罩编辑：通过
+
+- 模式：`native`
+- Provider：`images-native`
+- 结果：`/images/generations` 自动切换到 `/images/edits`，返回完整编辑结果，主体和眼镜保留，窗外背景变为浅蓝色。
+- 注意：遮罩必须包含 Alpha 通道；无 Alpha 时服务端返回 `invalid_mask_image_format`。
+
+### 测试中发现并修复
+
+1. Native multipart 编辑请求的 CRLF 边界原先被错误写成字面量 `\\r\\n`，服务端报 `multipart: NextPart: EOF`；已修复为真实 CRLF。
+2. multipart 编辑原先没有与普通生成一致的有限网络重试；已加入最多 3 次、指数退避重试。
+3. multipart HTTP 400 原先只显示底层异常；现在保留服务端 JSON 的 `code`、`message` 和 HTTP 状态，便于诊断。
+4. TLS EOF 被纳入可重试网络错误分类。
 
 ## 暂不自动执行的验收
 

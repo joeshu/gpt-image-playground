@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.error
 
 
 class ProviderError(RuntimeError):
@@ -26,7 +27,8 @@ def _retryable_network_error(exc):
     text = str(exc).lower()
     return 'network request failed' in text or any(token in text for token in (
         'sslzeroreturnerror', 'connection reset', 'connection aborted',
-        'remote end closed', 'temporarily unavailable', 'timed out'))
+        'remote end closed', 'temporarily unavailable', 'timed out',
+        'eof occurred in violation of protocol', 'unexpected eof'))
 
 
 @dataclass(frozen=True)
@@ -124,14 +126,23 @@ def _multipart_request(url, api_key, fields, files, timeout):
     boundary = '----gip-' + os.urandom(12).hex()
     chunks = []
     for key, value in fields.items():
-        chunks.extend([f'--{boundary}\\r\\n'.encode(), f'Content-Disposition: form-data; name="{key}"\\r\\n\\r\\n'.encode(), str(value).encode(), b'\\r\\n'])
+        chunks.extend([f'--{boundary}\r\n'.encode(), f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(), str(value).encode(), b'\r\n'])
     for field, filename, content, mime in files:
-        chunks.extend([f'--{boundary}\\r\\n'.encode(), f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\\r\\n'.encode(), f'Content-Type: {mime}\\r\\n\\r\\n'.encode(), content, b'\\r\\n'])
-    chunks.append(f'--{boundary}--\\r\\n'.encode())
-    request = urllib.request.Request(url, data=b''.join(chunks), method='POST', headers={'Authorization': f'Bearer {api_key}', 'Content-Type': f'multipart/form-data; boundary={boundary}', 'Accept': 'application/json'})
+        chunks.extend([f'--{boundary}\r\n'.encode(), f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'.encode(), f'Content-Type: {mime}\r\n\r\n'.encode(), content, b'\r\n'])
+    chunks.append(f'--{boundary}--\r\n'.encode())
+    request = urllib.request.Request(url, data=b''.join(chunks), method='POST', headers={'Authorization': f'Bearer {api_key}', 'Content-Type': f'multipart/form-data; boundary={boundary}', 'Accept': 'application/json', 'Connection': 'close', 'User-Agent': 'gpt-image-playground/2.7.1'})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read()
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode('utf-8', errors='replace'))
+            error = detail.get('error', detail) if isinstance(detail, dict) else {}
+            message = error.get('message') or str(error) or f'HTTP {exc.code}'
+            code = error.get('code') or 'native_http_error'
+        except Exception:
+            message, code = f'HTTP {exc.code}', 'native_http_error'
+        raise ProviderError(f'Native multipart 请求失败: {message}', provider='images-native', code=code, returncode=exc.code) from exc
     except Exception as exc:
         raise ProviderError(f'Native multipart 请求失败: {exc}', provider='images-native', code='native_request_failed') from exc
     try:

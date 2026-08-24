@@ -25,8 +25,9 @@ def main():
     assert custom_provider.retryable_poll_status(503)
     assert not custom_provider.retryable_poll_status(400)
     assert custom_provider.poll_delay(2, 3) == 8
-    from provider_base import ProviderError
+    from provider_base import ProviderError, _retryable_network_error
     assert ProviderError('x', code='missing_endpoint').code == 'missing_endpoint'
+    assert _retryable_network_error(ProviderError('Native multipart 请求失败: EOF occurred in violation of protocol', code='native_request_failed'))
 
     import provider_base as pb
     with tempfile.TemporaryDirectory() as temp:
