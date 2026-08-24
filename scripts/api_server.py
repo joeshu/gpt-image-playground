@@ -65,6 +65,25 @@ def read_json(path):
         return json.load(stream)
 
 
+def capabilities_for(profile_id='default'):
+    try:
+        config = read_json(PROFILES)
+        profile = next((item for item in config.get('profiles', []) if item.get('id') == profile_id), {})
+    except (OSError, ValueError, json.JSONDecodeError):
+        profile = {}
+    provider = profile.get('provider', 'openai')
+    api_mode = profile.get('api_mode', 'images')
+    native_available = api_mode in ('images', 'auto') and provider in ('openai', 'openai-compatible', None)
+    script_available = (ROOT / 'scripts' / 'generate.py').is_file()
+    return {
+        'profile': profile_id, 'execution_modes': ['auto', 'native', 'script'],
+        'default_execution_mode': profile.get('execution_mode', 'auto'),
+        'native': {'generate': native_available, 'edit': native_available, 'batch': native_available, 'stream': native_available},
+        'script': {'generate': script_available, 'edit': script_available, 'batch': script_available, 'stream': False},
+        'fallback': {'native_to_script': native_available and script_available},
+    }
+
+
 def safe_json(value):
     if isinstance(value, dict): return {key: safe_json(item) for key, item in value.items()}
     if isinstance(value, list): return [safe_json(item) for item in value]
@@ -599,7 +618,8 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == '/v1/version':
                 return self.send_json(200, {'api_version': VERSION, 'skill_version': VERSION, 'min_client_version': API_MIN_CLIENT, 'compatibility': 'v1'})
             if parsed.path == '/v1/capabilities':
-                return self.send_json(200, {'execution_modes': ['auto', 'native', 'script'], 'default_execution_mode': 'auto', 'native': {'generate': True, 'edit': True, 'batch': True, 'stream': True}, 'script': {'generate': True, 'edit': True, 'batch': True, 'stream': False}, 'fallback': {'native_to_script': True}})
+                profile_id = parse_qs(parsed.query).get('profile', ['default'])[0]
+                return self.send_json(200, capabilities_for(profile_id))
             if parsed.path == '/v1/setup/status':
                 profile_id = parse_qs(parsed.query).get('profile', ['default'])[0]
                 config = read_json(PROFILES); profile = next((x for x in config.get('profiles', []) if x.get('id') == profile_id), {'id': profile_id})
