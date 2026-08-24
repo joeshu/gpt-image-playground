@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import base64
 import json
 import sys
 import threading
@@ -26,6 +27,27 @@ def main():
     assert custom_provider.poll_delay(2, 3) == 8
     from provider_base import ProviderError
     assert ProviderError('x', code='missing_endpoint').code == 'missing_endpoint'
+
+    import provider_base as pb
+    with tempfile.TemporaryDirectory() as temp:
+        temp = Path(temp); source = temp / 'source.png'; mask = temp / 'mask.png'
+        (temp / 'out').mkdir(); (temp / 'work').mkdir()
+        source.write_bytes(b'PNG-SOURCE'); mask.write_bytes(b'PNG-MASK')
+        captured = {}
+        def fake_multipart(url, key, fields, files, timeout):
+            captured.update(url=url, key=key, fields=fields, files=files, timeout=timeout)
+            return {'data': [{'b64_json': base64.b64encode(b'PNG-RESULT').decode()}]}
+        original_multipart = pb._multipart_request; pb._multipart_request = fake_multipart
+        try:
+            edit_context = ProviderContext(task={'prompt': 'edit', 'endpoint': 'https://example.test/v1/images/generations', 'images': [str(source)], 'mask': str(mask), 'model': 'gpt-image-2'}, task_path=temp / 'task.json', output_dir=temp / 'out', workspace_dir=temp / 'work', dry_run=False, task_id='edit-1')
+            result = json.loads(registry.native_images.run(edit_context, {'GPT_IMAGE_API_KEY': 'fixture-key'}))
+        finally:
+            pb._multipart_request = original_multipart
+        assert captured['url'].endswith('/images/edits')
+        assert captured['key'] == 'fixture-key'
+        assert [item[0] for item in captured['files']] == ['image[]', 'mask']
+        assert captured['fields']['prompt'] == 'edit'
+        assert result['saved_images']
 
     class NativeFixture:
         name = 'images-native-fixture'
@@ -91,7 +113,6 @@ def main():
     import playground
     assert 'reused' in inspect.getsource(playground.retry_batch)
     assert 'retried' in inspect.getsource(playground.retry_batch)
-    import base64
     import responses_provider
     state = {'output': []}
     responses_provider.apply_stream_event(state, {'type': 'response.output_text.delta', 'delta': 'hello'})
