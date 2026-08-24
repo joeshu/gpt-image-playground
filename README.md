@@ -28,6 +28,16 @@ outputs/gpt-image-playground/
 
 平台托管环境可以通过 `GPT_IMAGE_PLAYGROUND_DATA` 和 `GPT_IMAGE_PLAYGROUND_ATTACHMENTS` 覆盖这两个目录。
 
+## 最小运行时打包
+
+构建 React Web 时只在构建机安装 Node.js/npm；部署时使用：
+
+```bash
+python3 scripts/package_runtime.py
+```
+
+打包器只包含 Python 后端、必要配置、`web-react/dist`（若存在）或旧版 `web/` 回退页面，不包含 `web-react/src`、`node_modules`、测试、`.git`、缓存和生成产物。Provider API Key 仍只放在后端环境变量或运行时 Profile 中。
+
 ## 跨 Agent 调用
 
 Codex、Minis、Claude 和其他 Agent 使用统一入口：
