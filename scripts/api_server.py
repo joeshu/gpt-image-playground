@@ -519,6 +519,7 @@ OPENAPI = {
     'paths': {
         '/v1/version': {'get': {'responses': {'200': {'description': 'Version compatibility'}}}},
         '/v1/models': {'get': {'responses': {'200': {'description': 'Available models'}}}},
+        '/v1/capabilities': {'get': {'responses': {'200': {'description': 'Execution mode capabilities'}}}},
         '/v1/history': {'get': {'responses': {'200': {'description': 'History'}}}},
         '/v1/setup': {'post': {'requestBody': {'required': True}, 'responses': {'200': {'description': 'Configured'}}}},
         '/v1/setup/status': {'get': {'responses': {'200': {'description': 'Configuration status'}}}},
@@ -597,6 +598,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parsed.path == '/v1/version':
                 return self.send_json(200, {'api_version': VERSION, 'skill_version': VERSION, 'min_client_version': API_MIN_CLIENT, 'compatibility': 'v1'})
+            if parsed.path == '/v1/capabilities':
+                return self.send_json(200, {'execution_modes': ['auto', 'native', 'script'], 'default_execution_mode': 'auto', 'native': {'generate': True, 'edit': True, 'batch': True, 'stream': True}, 'script': {'generate': True, 'edit': True, 'batch': True, 'stream': False}, 'fallback': {'native_to_script': True}})
             if parsed.path == '/v1/setup/status':
                 profile_id = parse_qs(parsed.query).get('profile', ['default'])[0]
                 config = read_json(PROFILES); profile = next((x for x in config.get('profiles', []) if x.get('id') == profile_id), {'id': profile_id})
