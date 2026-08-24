@@ -587,6 +587,62 @@ async function parseAgentStreamResponse(
   }
 }
 
+async function callCompatAgent(opts: {
+  profile: ApiProfile
+  input: unknown
+  signal?: AbortSignal
+  onImageToolStarted?: (event: { toolCallId: string; outputIndex?: number }) => void | Promise<void>
+  onImageToolCompleted?: (image: AgentApiResultImage) => void | Promise<void>
+}): Promise<AgentApiResult> {
+  const root = (import.meta.env.VITE_COMPAT_API_ROOT || '').replace(/\\/$/, '')
+  const token = import.meta.env.VITE_COMPAT_API_TOKEN || ''
+  const textFromInput = (value: unknown): string => {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value)) return value.map(textFromInput).filter(Boolean).join('\\n')
+    if (value && typeof value === 'object') {
+      const item = value as Record<string, unknown>
+      return typeof item.text === 'string' ? item.text : typeof item.input_text === 'string' ? item.input_text : textFromInput(item.content)
+    }
+    return ''
+  }
+  const imageFromPath = async (path: string): Promise<string> => {
+    const response = await fetch(`${root}/v1/files?path=${encodeURIComponent(path)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: opts.signal })
+    if (!response.ok) throw new Error(`Agent 图片加载失败（HTTP ${response.status}）`)
+    const blob = await response.blob()
+    return await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob) })
+  }
+  const inputImages: string[] = []
+  const collectImages = (value: unknown) => {
+    if (Array.isArray(value)) value.forEach(collectImages)
+    else if (value && typeof value === 'object') {
+      const item = value as Record<string, unknown>
+      if (item.type === 'input_image' && typeof item.image_url === 'string') inputImages.push(item.image_url)
+      else Object.values(item).forEach(collectImages)
+    }
+  }
+  collectImages(opts.input)
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+  const response = await fetch(`${root}/v1/agent`, { method: 'POST', headers, body: JSON.stringify({ prompt: textFromInput(opts.input), images: inputImages, profile: opts.profile.id }), signal: opts.signal })
+  const body = await response.json().catch(() => ({})) as Record<string, unknown>
+  if (!response.ok) {
+    const error = body.error && typeof body.error === 'object' && typeof (body.error as Record<string, unknown>).message === 'string' ? (body.error as Record<string, unknown>).message as string : typeof body.error === 'string' ? body.error : `Agent 请求失败（HTTP ${response.status}）`
+    throw new Error(error)
+  }
+  const generated = Array.isArray(body.images) ? body.images as Array<Record<string, unknown>> : []
+  const images: AgentApiResultImage[] = []
+  for (let index = 0; index < generated.length; index++) {
+    const item = generated[index]
+    const path = typeof item.path === 'string' ? item.path : typeof item.url === 'string' ? item.url : ''
+    if (!path) continue
+    await opts.onImageToolStarted?.({ toolCallId: String(item.tool_call_id || item.id || `compat-agent-${index + 1}`), outputIndex: index })
+    const dataUrl = path.startsWith('data:') ? path : path.startsWith('http') ? path : await imageFromPath(path)
+    const image = { toolCallId: String(item.tool_call_id || item.id || `compat-agent-${index + 1}`), action: 'auto', dataUrl }
+    images.push(image)
+    await opts.onImageToolCompleted?.(image)
+  }
+  return { responseId: typeof body.conversation_id === 'string' ? body.conversation_id : undefined, text: typeof body.text === 'string' ? body.text : '', images, outputItems: [], rawResponsePayload: JSON.stringify(body) }
+}
+
 export async function callAgentResponsesApi(opts: {
   settings: AppSettings
   profile: ApiProfile
@@ -603,6 +659,9 @@ export async function callAgentResponsesApi(opts: {
   onImageToolFailed?: (event: AgentApiImageToolFailure) => void | Promise<void>
 }): Promise<AgentApiResult> {
   const { settings, profile, imageProfile, params, input, maskDataUrl, signal, onTextDelta, onOutputItems, onImageToolStarted, onImagePartialImage, onImageToolCompleted, onImageToolFailed } = opts
+  if (import.meta.env.VITE_COMPAT_API_ROOT !== undefined) {
+    return callCompatAgent({ profile, input, signal, onImageToolStarted, onImageToolCompleted })
+  }
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
