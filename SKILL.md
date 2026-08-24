@@ -63,6 +63,7 @@ python3 scripts/agent.py --prompt "test" --dry-run
 - Read JSON from command stdout.
 - Treat a zero exit code as a successful command execution.
 - Read `saved_images` for image generation results.
+- For safe retries, send a stable `Idempotency-Key` header (or `request_id` JSON field) to `/v1/generate`, `/v1/batch` or `/v1/agent`; repeated requests return the original result without generating again.
 - Read `requested_params`, `actual_params`, `attempts` and `timing` for normalized execution diagnostics.
 - Read `images` for Agent results.
 - Read `events_file` for JSONL Agent round and tool-call lifecycle events.

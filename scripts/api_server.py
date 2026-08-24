@@ -355,6 +355,23 @@ def forward_agent_events(job_id, result):
     return count
 
 
+def idempotency_file(request_id):
+    safe = ''.join(char for char in str(request_id) if char.isalnum() or char in '-_')[:120]
+    return API_WORK / 'idempotency' / f'{safe}.json'
+
+
+def load_idempotent(request_id):
+    if not request_id: return None
+    path = idempotency_file(request_id)
+    return read_json(path) if path.is_file() else None
+
+
+def save_idempotent(request_id, value):
+    if not request_id: return
+    path = idempotency_file(request_id); path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(safe_json(value), ensure_ascii=False), encoding='utf-8')
+
+
 def job_file(job_id):
     API_WORK.joinpath('jobs').mkdir(parents=True, exist_ok=True)
     return API_WORK / 'jobs' / f'{job_id}.json'
@@ -715,6 +732,10 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self.read_body()
+            request_id = self.headers.get('Idempotency-Key') or payload.get('request_id')
+            if request_id and parsed.path in ('/v1/generate', '/v1/batch', '/v1/agent'):
+                previous = load_idempotent(request_id)
+                if previous: return self.send_json(previous.get('status', 200), previous.get('body', {}))
             if parsed.path == '/v1/agent/branch':
                 source=payload.get('session_path'); target=payload.get('target_path')
                 if not source or not target: raise ValueError('缺少 session_path 或 target_path')
@@ -768,10 +789,16 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 return self.send_error(404, 'not_found', '接口不存在')
             if async_job:
-                return self.send_json(202, submit_job(kind, clean, timeout))
+                body = submit_job(kind, clean, timeout)
+                body['request_id'] = request_id if request_id else None
+                if request_id: save_idempotent(request_id, {'status': 202, 'body': body})
+                return self.send_json(202, body)
             if kind == 'generate': result = run_generate(clean, timeout)
             elif kind == 'batch': result = run_batch(clean, timeout)
             else: result = run_agent(clean, timeout)
+            if request_id:
+                result = dict(result or {}); result['request_id'] = request_id
+                save_idempotent(request_id, {'status': 200, 'body': result})
             return self.send_json(200, result)
         except ExecutorError as exc:
             meta = classify_execution_error(exc, payload.get('execution_mode', 'auto'))
