@@ -64,6 +64,7 @@ python3 scripts/agent.py --prompt "test" --dry-run
 - Treat a zero exit code as a successful command execution.
 - Read `saved_images` for image generation results.
 - For safe retries, send a stable `Idempotency-Key` header (or `request_id` JSON field) to `/v1/generate`, `/v1/batch` or `/v1/agent`; repeated requests return the original result without generating again.
+- Batch jobs accept `batch_id`; asynchronous `/v1/batch` jobs expose `parent_task_id`, `batch_id`, and `total` in their job status metadata.
 - Read `requested_params`, `actual_params`, `attempts` and `timing` for normalized execution diagnostics.
 - Read `images` for Agent results.
 - Read `events_file` for JSONL Agent round and tool-call lifecycle events.

@@ -457,6 +457,10 @@ def submit_job(kind, payload, timeout):
             raise ExecutorError('后台任务队列已满', 429)
         job_id = f'job-{time.strftime("%Y%m%d-%H%M%S")}-{uuid.uuid4().hex[:8]}'
         job = {'id': job_id, 'kind': kind, 'status': 'queued', 'created_at': time.time()}
+        if kind == 'batch':
+            job['parent_task_id'] = payload.get('batch_id') or job_id
+            job['batch_id'] = payload.get('batch_id') or job['parent_task_id']
+            job['total'] = len(payload.get('tasks', [])) if isinstance(payload.get('tasks'), list) else 0
         JOBS[job_id] = job
         save_job(job)
     future = JOB_POOL.submit(execute_job, job_id, kind, dict(payload), timeout)

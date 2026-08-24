@@ -55,6 +55,18 @@ def main():
         output_script.write_text("import json, sys\nprint(json.dumps({'status': 'ok'}))\nprint('err', file=sys.stderr)\n", encoding='utf-8')
         result = api.run_executor([sys.executable, str(output_script)], {}, 10)
         check(result == {'status': 'ok'}, 'process output collection')
+    normalized_batch = api.normalize_task({'batch_id': 'batch-1', 'tasks': [{'prompt': 'a'}, {'prompt': 'b'}]}, batch=True)
+    check(normalized_batch['batch_id'] == 'batch-1' and len(normalized_batch['tasks']) == 2, 'batch normalization')
+    old_pool, old_work, old_jobs = api.JOB_POOL, api.API_WORK, api.JOBS
+    class FakeFuture: pass
+    class FakePool:
+        def submit(self, *args): return FakeFuture()
+    with tempfile.TemporaryDirectory() as batch_temp:
+        api.JOB_POOL, api.API_WORK, api.JOBS = FakePool(), Path(batch_temp), {}
+        submitted = api.submit_job('batch', normalized_batch, 10)
+        job = api.get_job(submitted['job_id'])
+        check(job['parent_task_id'] == 'batch-1' and job['total'] == 2, 'batch parent metadata')
+    api.JOB_POOL, api.API_WORK, api.JOBS = old_pool, old_work, old_jobs
     check(api.normalize_task({'prompt': 'x', 'endpoint': 'evil', 'api_key': 'secret'})['prompt'] == 'x', 'normalization')
     try: api.validate_input_image('/etc/passwd'); raise AssertionError('path accepted')
     except ValueError: pass
