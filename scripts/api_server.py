@@ -372,6 +372,23 @@ def save_idempotent(request_id, value):
     path.write_text(json.dumps(safe_json(value), ensure_ascii=False), encoding='utf-8')
 
 
+def cleanup_idempotency(max_age=None):
+    """Remove persisted idempotency results older than the retention window."""
+    root = API_WORK / 'idempotency'
+    if not root.is_dir(): return 0
+    try: age = int(max_age if max_age is not None else os.environ.get('GPT_PLAYGROUND_IDEMPOTENCY_TTL', '86400'))
+    except ValueError: age = 86400
+    if age < 0: return 0
+    cutoff = time.time() - age; removed = 0
+    for path in root.glob('*.json'):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink(); removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def job_file(job_id):
     API_WORK.joinpath('jobs').mkdir(parents=True, exist_ok=True)
     return API_WORK / 'jobs' / f'{job_id}.json'
@@ -828,6 +845,7 @@ def main():
         parser.error('非 localhost 监听必须设置 GPT_PLAYGROUND_API_TOKEN')
     if not 1 <= args.port <= 65535: parser.error('port 必须在 1-65535')
     WORK.mkdir(parents=True, exist_ok=True)
+    cleanup_idempotency()
     restore_jobs()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     pid_path = API_WORK / 'api-server.pid'

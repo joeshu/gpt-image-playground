@@ -27,6 +27,13 @@ def main():
     with tempfile.TemporaryDirectory() as temp:
         db = Path(temp) / 'tasks.sqlite3'; record({'task_id':'t1','created_at':'2026','status':'completed','prompt':'lake','profile':'p'}, db); check(search('lake', path=db)[0]['task_id'] == 't1', 'task store')
     check(api.safe_json('data:image/png;base64,abc').startswith('[data URL omitted'), 'redaction')
+    with tempfile.TemporaryDirectory() as idem_temp:
+        old_work = api.API_WORK; api.API_WORK = Path(idem_temp)
+        api.save_idempotent('retry-1', {'status': 200, 'body': {'ok': True}})
+        check(api.load_idempotent('retry-1')['body']['ok'] is True, 'idempotency load')
+        stale = api.idempotency_file('stale'); stale.write_text('{}'); os.utime(stale, (time.time() - 10, time.time() - 10))
+        check(api.cleanup_idempotency(1) == 1, 'idempotency cleanup')
+        api.API_WORK = old_work
     with tempfile.TemporaryDirectory() as event_temp:
         old_work = api.WORK
         api.WORK = Path(event_temp)
