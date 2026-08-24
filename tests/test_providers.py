@@ -26,6 +26,45 @@ def main():
     assert custom_provider.poll_delay(2, 3) == 8
     from provider_base import ProviderError
     assert ProviderError('x', code='missing_endpoint').code == 'missing_endpoint'
+
+    class NativeFixture:
+        name = 'images-native-fixture'
+        mode = 'native'
+        def __init__(self, error=None): self.error = error
+        def is_file(self): return True
+        def run(self, _context, _env):
+            if self.error: raise self.error
+            return json.dumps({'status': 'completed', 'execution_mode': 'native', 'provider': self.name})
+
+    class ScriptFixture:
+        name = 'images-script-fixture'
+        mode = 'script'
+        class _Script:
+            def is_file(self): return True
+        script = _Script()
+        def run(self, _context, _env):
+            return json.dumps({'status': 'completed', 'execution_mode': 'script', 'provider': self.name})
+
+    fallback_registry = ProviderRegistry(ROOT / 'scripts', ROOT / 'scripts')
+    fallback_registry.native_images = NativeFixture(ProviderError('network down', provider='images-native', code='native_request_failed'))
+    fallback_registry.providers['images'] = fallback_registry.native_images
+    fallback_registry.script_images = ScriptFixture()
+    fallback_result = json.loads(fallback_registry.run(context, {'GPT_IMAGE_API_KEY': 'fixture'}))
+    assert fallback_result['execution_mode'] == 'script'
+    assert fallback_result['fallback_from'] == 'images-native-fixture'
+    assert fallback_result['fallback_reason'] == 'native_request_failed'
+
+    strict_registry = ProviderRegistry(ROOT / 'scripts', ROOT / 'scripts')
+    strict_registry.native_images = NativeFixture(ProviderError('bad input', provider='images-native', code='missing_image'))
+    strict_registry.providers['images'] = strict_registry.native_images
+    strict_registry.script_images = ScriptFixture()
+    try:
+        strict_registry.run(ProviderContext(task={'execution_mode': 'native'}, task_path=context.task_path, output_dir=context.output_dir, workspace_dir=context.workspace_dir, dry_run=True, task_id='strict'), {})
+    except ProviderError as exc:
+        assert exc.code == 'missing_image'
+    else:
+        raise AssertionError('strict native mode must not fall back')
+
     import agent
     import inspect
     profiles = json.loads((ROOT / 'profiles.json').read_text(encoding='utf-8'))['profiles']
