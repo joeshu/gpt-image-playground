@@ -25,6 +25,18 @@ version: 2.7.0
 - Local history, SQLite gallery, favorites, thumbnails and backups
 - REST/OpenAPI service with asynchronous Jobs and SSE events
 
+## Installation for Other Agents
+
+`SKILL.md` is the capability contract; it is not itself an installer. An Agent should install the prebuilt runtime from the private repository with Python only:
+
+```sh
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" https://raw.githubusercontent.com/joeshu/gpt-image-playground/main/scripts/install.py -o /tmp/install-gpt-image-playground.py
+GITHUB_TOKEN="$GITHUB_TOKEN" python3 /tmp/install-gpt-image-playground.py --target "$HOME/.skills/gpt-image-playground"
+cd "$HOME/.skills/gpt-image-playground" && python3 scripts/skill.py check
+```
+
+For a private repository, `GITHUB_TOKEN` must have repository read access. The installer verifies `SKILL.md`, `scripts/skill.py` and the prebuilt `web-react/dist/index.html`, removes development-only files, and never installs Node.js/npm. After installation, start the Web UI with `python3 scripts/skill.py serve`.
+
 ## Entry Points
 
 Run commands from the skill root:

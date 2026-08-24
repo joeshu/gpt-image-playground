@@ -12,6 +12,22 @@ Claude / Codex / Gemini / 自定义 Agent / CLI / Web
 
 当前版本：`2.7.0`
 
+## 其他 Agent 安装
+
+其他支持 `SKILL.md` 的 Agent 不需要 Node.js/npm。使用 Python 安装器下载已构建运行包：
+
+```sh
+curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" https://raw.githubusercontent.com/joeshu/gpt-image-playground/main/scripts/install.py -o /tmp/install-gpt-image-playground.py
+GITHUB_TOKEN="$GITHUB_TOKEN" python3 /tmp/install-gpt-image-playground.py --target "$HOME/.skills/gpt-image-playground"
+cd "$HOME/.skills/gpt-image-playground" && python3 scripts/skill.py check
+```
+
+如果仓库是私有仓库，`GITHUB_TOKEN` 需要具备仓库读取权限。安装包已经包含 React `web-react/dist`，安装后直接启动 Web，不需要构建环境：
+
+```sh
+python3 scripts/skill.py serve
+```
+
 ## 本地运行目录
 
 在仓库工作区运行时，生成图片默认保存到：
