@@ -1,3 +1,3 @@
 """Shared package and API version."""
 
-VERSION = '2.7.4'
+VERSION = '2.7.5'

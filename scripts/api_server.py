@@ -611,7 +611,7 @@ OPENAPI = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'GPTImagePlaygroundAPI/2.7.4'
+    server_version = 'GPTImagePlaygroundAPI/2.7.5'
 
     def log_message(self, fmt, *args):
         sys.stderr.write('[playground-api] ' + (fmt % args) + '\n')
