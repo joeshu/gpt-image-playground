@@ -27,15 +27,15 @@ version: 2.7.0
 
 ## Installation for Other Agents
 
-`SKILL.md` is the capability contract; it is not itself an installer. An Agent should install the prebuilt runtime from the private repository with Python only:
+`SKILL.md` is the capability contract; it is not itself an installer. This repository is public, so an Agent can install the prebuilt runtime with Python only:
 
 ```sh
-curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" https://raw.githubusercontent.com/joeshu/gpt-image-playground/main/scripts/install.py -o /tmp/install-gpt-image-playground.py
-GITHUB_TOKEN="$GITHUB_TOKEN" python3 /tmp/install-gpt-image-playground.py --target "$HOME/.skills/gpt-image-playground"
+curl -fsSL https://raw.githubusercontent.com/joeshu/gpt-image-playground/main/scripts/install.py -o /tmp/install-gpt-image-playground.py
+python3 /tmp/install-gpt-image-playground.py --target "$HOME/.skills/gpt-image-playground"
 cd "$HOME/.skills/gpt-image-playground" && python3 scripts/skill.py check
 ```
 
-For a private repository, `GITHUB_TOKEN` must have repository read access. The installer verifies `SKILL.md`, `scripts/skill.py` and the prebuilt `web-react/dist/index.html`, removes development-only files, and never installs Node.js/npm. After installation, start the Web UI with `python3 scripts/skill.py serve`.
+For a private fork, set `GITHUB_TOKEN` with repository read access. The installer verifies `SKILL.md`, `scripts/skill.py` and the prebuilt `web-react/dist/index.html`, removes development-only files, and never installs Node.js/npm. After installation, start the Web UI with `python3 scripts/skill.py serve`.
 
 ## Entry Points
 
@@ -43,6 +43,7 @@ Run commands from the skill root:
 
 ```sh
 python3 scripts/skill.py check
+python3 scripts/skill.py doctor
 python3 scripts/playground.py --prompt "<prompt>"
 python3 scripts/agent.py --prompt "<prompt>"
 python3 scripts/agent.py --execution-mode native --prompt "<prompt>"
@@ -142,6 +143,7 @@ Set `GPT_PLAYGROUND_API_TOKEN` before binding to a non-localhost address. Use `/
 
 ```sh
 python3 scripts/skill.py check
+python3 scripts/skill.py doctor
 python3 scripts/playground.py --validate-profiles
 python3 scripts/playground.py --prompt "test" --dry-run
 python3 scripts/agent.py --prompt "test" --dry-run

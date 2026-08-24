@@ -48,16 +48,44 @@ def check():
         'root': str(skill_root()),
         'data_dir': str(data_root()),
         'attachments_dir': str(attachments_root()),
-        'commands': ['generate', 'agent', 'serve', 'check'],
+        'commands': ['generate', 'agent', 'serve', 'check', 'doctor'],
     }
+
+
+def doctor():
+    from runtime_paths import attachments_root, data_root, skill_root
+    checks = {}
+    try:
+        import sqlite3  # noqa: F401
+        checks['python'] = 'ok'
+        checks['sqlite'] = 'ok'
+    except Exception as exc:
+        checks['python'] = f'failed: {exc}'
+        checks['sqlite'] = 'failed'
+    checks['skill_manifest'] = 'ok' if (ROOT / 'SKILL.md').is_file() else 'failed'
+    checks['web_dist'] = 'ok' if (ROOT / 'web-react' / 'dist' / 'index.html').is_file() else 'failed'
+    checks['profiles'] = 'ok' if (ROOT / 'profiles.json').is_file() else 'warning: profiles.json missing'
+    try:
+        import requests  # noqa: F401
+        checks['requests'] = 'ok'
+    except ImportError:
+        checks['requests'] = 'missing: install Python package requests'
+    for path in (data_root(), attachments_root()):
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            checks[f'write:{path.name}'] = 'ok'
+        except OSError as exc:
+            checks[f'write:{path.name}'] = f'failed: {exc}'
+    hard = [value for value in checks.values() if str(value).startswith('failed')]
+    return {'status': 'ready' if not hard else 'failed', 'name': 'gpt-image-playground', 'version': VERSION, 'root': str(skill_root()), 'checks': checks}
 
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Image Playground 通用 Agent 技能入口')
-    parser.add_argument('command', choices=['check', 'generate', 'agent', 'serve'])
+    parser.add_argument('command', choices=['check', 'doctor', 'generate', 'agent', 'serve'])
     args, remainder = parser.parse_known_args()
     try:
-        result = check() if args.command == 'check' else run_script(
+        result = doctor() if args.command == 'doctor' else check() if args.command == 'check' else run_script(
             {'generate': 'playground.py', 'agent': 'agent.py', 'serve': 'api_server.py'}[args.command],
             remainder,
         )
