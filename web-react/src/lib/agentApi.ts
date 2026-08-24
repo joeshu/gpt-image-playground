@@ -594,7 +594,7 @@ async function callCompatAgent(opts: {
   onImageToolStarted?: (event: { toolCallId: string; outputIndex?: number }) => void | Promise<void>
   onImageToolCompleted?: (image: AgentApiResultImage) => void | Promise<void>
 }): Promise<AgentApiResult> {
-  const root = (import.meta.env.VITE_COMPAT_API_ROOT || '').replace(/\\/$/, '')
+  const root = (import.meta.env.VITE_COMPAT_API_ROOT || '').replace(/\/$/, '')
   const token = import.meta.env.VITE_COMPAT_API_TOKEN || ''
   const textFromInput = (value: unknown): string => {
     if (typeof value === 'string') return value
