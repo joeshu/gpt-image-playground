@@ -20,10 +20,9 @@ def main():
         for name in KEEP_SCRIPTS:
             src = ROOT / 'scripts' / name
             if src.is_file(): shutil.copy2(src, stage / 'scripts' / name)
-        dist = ROOT / 'web-react' / 'dist'
-        if not dist.is_dir():
-            raise SystemExit('缺少 web-react/dist：先运行 npm run build，或等待 build-web Actions 发布构建产物')
-        web = dist
+        web = ROOT / 'web'
+        if not web.is_dir() or not (web / 'index.html').is_file():
+            raise SystemExit('缺少 web/index.html')
         for src in web.iterdir():
             dst = stage / 'web' / src.name
             shutil.copytree(src, dst) if src.is_dir() else shutil.copy2(src, dst)

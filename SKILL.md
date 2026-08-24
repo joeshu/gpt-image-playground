@@ -35,7 +35,7 @@ python3 /tmp/install-gpt-image-playground.py --target "$HOME/.skills/gpt-image-p
 cd "$HOME/.skills/gpt-image-playground" && python3 scripts/skill.py check
 ```
 
-For a private fork, set `GITHUB_TOKEN` with repository read access. The installer verifies `SKILL.md`, `scripts/skill.py` and the prebuilt `web-react/dist/index.html`, removes development-only files, and never installs Node.js/npm. After installation, start the Web UI with `python3 scripts/skill.py serve`.
+For a private fork, set `GITHUB_TOKEN` with repository read access. The installer verifies `SKILL.md`, `scripts/skill.py` and the lightweight `web/index.html`, removes development-only files, and never installs Node.js/npm. After installation, start the Web UI with `python3 scripts/skill.py serve`.
 
 ## Entry Points
 

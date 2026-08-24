@@ -63,7 +63,7 @@ def doctor():
         checks['python'] = f'failed: {exc}'
         checks['sqlite'] = 'failed'
     checks['skill_manifest'] = 'ok' if (ROOT / 'SKILL.md').is_file() else 'failed'
-    checks['web_dist'] = 'ok' if (ROOT / 'web-react' / 'dist' / 'index.html').is_file() else 'failed'
+    checks['web'] = 'ok' if (ROOT / 'web' / 'index.html').is_file() else 'failed'
     checks['profiles'] = 'ok' if (ROOT / 'profiles.json').is_file() else 'warning: profiles.json missing'
     try:
         import requests  # noqa: F401

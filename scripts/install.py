@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the prebuilt skill runtime for another Agent/environment."""
+"""Install the lightweight HTML skill runtime for another Agent/environment."""
 from pathlib import Path
 import argparse, io, json, os, shutil, tarfile, tempfile, time, urllib.request
 
@@ -34,16 +34,16 @@ def main():
         roots = [x for x in stage.iterdir() if x.is_dir()]
         if len(roots) != 1: raise RuntimeError('下载包结构无效')
         source = roots[0]
-        required = ('SKILL.md', 'scripts/skill.py', 'web-react/dist/index.html')
+        required = ('SKILL.md', 'scripts/skill.py', 'web/index.html')
         missing = [item for item in required if not (source / item).is_file()]
-        if missing: raise RuntimeError('发布包缺少预构建文件: ' + ', '.join(missing))
+        if missing: raise RuntimeError('发布包缺少技能文件: ' + ', '.join(missing))
         if target.exists(): shutil.rmtree(target)
         shutil.copytree(source, target, ignore=shutil.ignore_patterns('.git', 'tests', 'node_modules', '__pycache__'))
         for name in ('src', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts', 'tailwind.config.js', 'postcss.config.js'):
             path = target / 'web-react' / name
             if path.is_dir(): shutil.rmtree(path)
             elif path.exists(): path.unlink()
-    result = {'status': 'installed', 'name': 'gpt-image-playground', 'root': str(target), 'web': str(target / 'web-react' / 'dist'), 'next': f'cd {target} && python3 scripts/skill.py check'}
+    result = {'status': 'installed', 'name': 'gpt-image-playground', 'root': str(target), 'web': str(target / 'web'), 'next': f'cd {target} && python3 scripts/skill.py check'}
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 if __name__ == '__main__': main()
