@@ -84,6 +84,16 @@ def capabilities_for(profile_id='default'):
     }
 
 
+def classify_execution_error(message, requested_mode='auto'):
+    text = str(message).lower()
+    non_retryable = ('api key', '缺少', 'missing', 'invalid prompt', 'invalid model', '图片不存在', 'image file')
+    if any(token in text for token in non_retryable):
+        return {'code': 'configuration_invalid', 'retryable': False, 'fallback_available': False}
+    if requested_mode == 'native' and ('unsupported' in text or '不支持' in text):
+        return {'code': 'native_unsupported', 'retryable': False, 'fallback_available': False}
+    return {'code': 'native_request_failed' if requested_mode in ('auto', 'native') else 'script_failed', 'retryable': True, 'fallback_available': requested_mode == 'auto'}
+
+
 def safe_json(value):
     if isinstance(value, dict): return {key: safe_json(item) for key, item in value.items()}
     if isinstance(value, list): return [safe_json(item) for item in value]
@@ -764,10 +774,12 @@ class Handler(BaseHTTPRequestHandler):
             else: result = run_agent(clean, timeout)
             return self.send_json(200, result)
         except ExecutorError as exc:
-            return self.send_error(exc.status, 'executor_error', str(exc))
+            meta = classify_execution_error(exc, payload.get('execution_mode', 'auto'))
+            return self.send_error(exc.status, meta['code'], str(exc), {'mode': payload.get('execution_mode', 'auto'), **meta})
         except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
             status = 504 if isinstance(exc, subprocess.TimeoutExpired) else 422
-            return self.send_error(status, 'request_invalid' if status == 422 else 'executor_timeout', str(exc))
+            meta = {'code': 'executor_timeout' if status == 504 else 'request_invalid', 'retryable': status == 504, 'fallback_available': False}
+            return self.send_error(status, meta['code'], str(exc), {'mode': payload.get('execution_mode', 'auto'), **meta})
         except Exception as exc:
             return self.send_error(500, 'internal_error', str(exc))
 
