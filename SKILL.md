@@ -1,147 +1,134 @@
 ---
 name: gpt-image-playground
-description: 图片生成与编辑编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI 和异步 Job。当用户需要生成、编辑、批量处理图片，或需要图片 Provider、Agent、API 能力时使用。
 version: 2.7.1
+description: "图片生成与编辑编排技能：支持文生图、参考图、遮罩、批量任务、Native/Script/Auto 双执行模式、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job 和 SSE。当用户要求生成、编辑、批量处理图片，或需要配置图片 Provider、调用 Agent/API、排查生成失败时使用。"
 ---
 
 # GPT Image Playground
 
-## Skill Contract
+这是本技能的唯一 Agent 入口。读取本文件后，从技能根目录调用脚本；详细参数和长示例见 `README.md`。
 
-本文件是唯一权威技能入口。支持 Skill.md 规范的 Agent 应先读取本文件，再调用项目脚本。完整使用说明、参数表和案例位于 `README.md`。
-
-## Capabilities
-
-- Text-to-image and image editing
-- Reference images and mask editing
-- Batch generation with concurrency and failure isolation
-- OpenAI-compatible Images API
-- Images API supports `execution_mode=auto`, `native` and `script`
-- OpenAI Responses API with Agent orchestration and optional SSE streaming
-- Agent native mode uses the provider's native image-generation capability directly; mixed mode uses local `generate_image` tools
-- Agent supports stable image IDs, prompt-embedded `<ref id="..." />` references, branch-safe session state and streamed text events
-- fal.ai queue provider
-- Declarative synchronous and asynchronous custom providers
-- Local history, SQLite gallery, favorites, thumbnails and backups
-- REST/OpenAPI service with asynchronous Jobs and SSE events
-
-## Installation for Other Agents
-
-`SKILL.md` is the capability contract; it is not itself an installer. This repository is public, so an Agent can install the prebuilt runtime with Python only:
+## 先做什么
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/joeshu/gpt-image-playground/main/scripts/install.py -o /tmp/install-gpt-image-playground.py
-python3 /tmp/install-gpt-image-playground.py --target "$HOME/.skills/gpt-image-playground"
-cd "$HOME/.skills/gpt-image-playground" && python3 scripts/skill.py check
-```
-
-For a private fork, set `GITHUB_TOKEN` with repository read access. The installer verifies `SKILL.md`, `scripts/skill.py` and the lightweight `web/index.html`, removes development-only files, and never installs Node.js/npm. After installation, start the Web UI with `python3 scripts/skill.py serve`.
-
-## Entry Points
-
-Run commands from the skill root:
-
-```sh
+cd /path/to/gpt-image-playground
 python3 scripts/skill.py check
 python3 scripts/skill.py doctor
-python3 scripts/playground.py --prompt "<prompt>"
-python3 scripts/agent.py --prompt "<prompt>"
-python3 scripts/agent.py --execution-mode native --prompt "<prompt>"
-python3 scripts/agent.py --stream --prompt "<prompt>"
-python3 scripts/api_server.py --host 127.0.0.1 --port 8765
+python3 scripts/playground.py --validate-profiles
 ```
 
-Use `--dry-run` for validation without calling a provider:
+不确定参数或首次接入时，先用 `--dry-run`；不要在没有用户授权时调用真实 Provider。
+
+## 能力边界
+
+- 图片生成：单张、同提示词多张、批量不同提示词。
+- 图片编辑：参考图、局部遮罩；Native 模式自动切换 `/images/edits` multipart。
+- 执行策略：`auto`（优先 Native，符合条件时回退 Script）、`native`、`script`。
+- Provider：OpenAI-compatible Images、Responses、fal.ai Queue、声明式 Custom Provider。
+- Agent：多轮规划、工具调用、会话恢复、分支、稳定图片 ID、`<ref id="..." />` 引用、SSE/JSONL 事件。
+- 服务：REST/OpenAPI、异步 Job、Job SSE、历史、SQLite 画廊、收藏、缩略图和备份。
+
+不要把本技能当作前端构建项目：运行时 Web 使用原生 HTML/CSS/JavaScript，不需要 Node.js/npm。
+
+## 入口选择
+
+| 需求 | 入口 |
+|---|---|
+| 生成、编辑、批量 | `python3 scripts/playground.py` |
+| 多轮创作或 Agent 工具编排 | `python3 scripts/agent.py` |
+| 统一 Agent/CLI 调用 | `python3 scripts/skill.py generate/agent` |
+| 给其他程序提供 API | `python3 scripts/api_server.py` |
+| 人工操作、历史和画廊 | `python3 scripts/skill.py serve` 后打开 Web |
+
+通用入口示例：
 
 ```sh
-python3 scripts/playground.py --prompt "test" --dry-run
-python3 scripts/agent.py --prompt "test" --dry-run
+python3 scripts/skill.py generate --profile default --prompt "极简产品海报"
+python3 scripts/skill.py agent --profile default --prompt "设计角色并生成三张场景图"
+python3 scripts/skill.py serve --host 127.0.0.1 --port 8765
 ```
 
-## Agent Protocol
+## Agent 输出协议
 
-- Read JSON from command stdout.
-- Treat a zero exit code as a successful command execution.
-- Read `saved_images` for image generation results.
-- For safe retries, send a stable `Idempotency-Key` header (or `request_id` JSON field) to `/v1/generate`, `/v1/batch` or `/v1/agent`; repeated requests return the original result without generating again.
-- Batch jobs accept `batch_id`; asynchronous `/v1/batch` jobs expose `parent_task_id`, `batch_id`, and `total` in their job status metadata.
-- Read `requested_params`, `actual_params`, `attempts` and `timing` for normalized execution diagnostics.
-- Read `images` for Agent results.
-- Read `events_file` for JSONL Agent round and tool-call lifecycle events.
-- For asynchronous `/v1/agent` jobs, consume the same lifecycle events from `/v1/jobs/{id}/events`; each event includes `job_id` and `event_id`.
-- Agent Job SSE events are emitted while the subprocess is running; the final response may repeat persisted events for completeness.
-- Resuming a session replays persisted `pending_tool_calls` before requesting another model round, preventing an interrupted tool execution from being silently skipped.
-- Completed Agent tools are cached by `tool_call_id`; recovery reuses their results and executes only remaining calls.
-- Agent defaults to `--execution-mode native`, sends the native image-generation tool, and does not register local `generate_image` tools. `script` and `auto` retain mixed orchestration.
-- Read `job_id` for asynchronous REST jobs.
-- For batch results, use `batch_id` and each result's `batch_item_id` as stable retry and deduplication keys.
-- Retrying a partial batch reuses successful results and executes failed items only; results expose `reused`, `retried` and `retry_of`.
-- Read `error`, `error_code` and the non-zero exit code for failures.
-- Use `README.md` for complete examples and `GET /openapi.json` for REST schemas.
+脚本成功时读取 JSON stdout；零退出码才算成功。不要依赖人类日志文本。
 
-## Providers
+- 生成结果：读取 `saved_images`、`requested_params`、`actual_params`、`attempts`、`timing`。
+- Agent 结果：读取 `images`、`final_text`、`events_file`。
+- 异步 REST：读取 `job_id`，轮询 `/v1/jobs/{id}`；实时进度消费 `/v1/jobs/{id}/events`。
+- 批量：读取 `batch_id`、`batch_item_id`；部分失败时只重试失败项，关注 `reused`、`retried`、`retry_of`。
+- 错误：读取结构化 `error.code`、`error.message`、`error.details.mode`、`retryable`、`fallback_available`，并检查退出码。
 
-Provider selection uses Profile configuration:
+### 安全重试
+
+对 `/v1/generate`、`/v1/batch`、`/v1/agent` 使用稳定的 `Idempotency-Key` Header，或在 JSON 中传 `request_id`：
+
+```http
+Idempotency-Key: poster-2027-001
+```
+
+重复请求返回第一次结果，不重复生成。幂等记录默认保留 24 小时，可用 `GPT_PLAYGROUND_IDEMPOTENCY_TTL` 调整。
+
+## Provider 与模式
+
+Profile 在 `profiles.json` 中定义连接和默认模型：
 
 ```text
-provider=openai-compatible, api_mode=images  -> Images API
-api_mode=responses                          -> Responses API
-provider=fal                                -> fal.ai queue
-custom provider id                          -> custom adapter
+provider=openai-compatible, api_mode=images  -> Images Provider
+api_mode=responses                          -> Responses Provider
+provider=fal                                -> fal.ai Queue
+custom provider id                          -> Custom adapter
 ```
 
-Profiles are stored in `profiles.json`. Custom provider examples are stored in `profiles.custom.sync.example.json` and `profiles.custom.async.example.json`.
+- `auto`：优先 Native；只有网络/Provider 类可恢复错误才回退 Script。
+- `native`：强制 Native，失败不回退。
+- `script`：强制本地 Script Provider。
+- 结果中的 `execution_mode`、`provider`、`fallback_from`、`fallback_reason` 以实际执行路径为准。
 
-## Configuration
+## REST 最小契约
 
-Supported user-project environment variables:
+默认只监听本机：`127.0.0.1:8765`。主路由：
 
 ```text
-GPT_IMAGE_ENDPOINT
-GPT_IMAGE_API_KEY
-GPT_AGENT_ENDPOINT
-FAL_KEY
-GPT_PLAYGROUND_API_TOKEN
-GPT_IMAGE_PLAYGROUND_ROOT
-GPT_IMAGE_PLAYGROUND_DATA
-GPT_IMAGE_PLAYGROUND_ATTACHMENTS
-GPT_IMAGE_PLAYGROUND_INPUT_ROOT
+GET  /healthz                         健康检查
+GET  /openapi.json                    OpenAPI
+GET  /v1/profiles                     Profile
+GET  /v1/models                       模型目录
+POST /v1/generate                     单任务
+POST /v1/batch                        批量任务
+POST /v1/agent                        Agent
+GET  /v1/jobs/{id}                    Job 状态
+GET  /v1/jobs/{id}/events             Job SSE
+GET  /v1/history                      历史
+GET  /v1/gallery                      画廊
+POST /v1/backup/export                导出备份
+POST /v1/backup/import                导入备份
 ```
 
-The local connection file is created by `--setup`, uses permission `600`, and stores user-provided credentials outside the repository.
+异步批量提交可传 `batch_id`；Job 状态包含 `parent_task_id`、`batch_id`、`total`。非 localhost 监听前必须设置 `GPT_PLAYGROUND_API_TOKEN`。
 
-## REST Contract
+## 配置与安全
 
-The local server listens on `127.0.0.1` by default. Main routes:
+常用环境变量：
 
 ```text
-GET  /healthz
-GET  /openapi.json
-GET  /v1/profiles
-GET  /v1/models
-POST /v1/generate
-POST /v1/batch
-POST /v1/agent
-GET  /v1/jobs/{id}
-GET  /v1/jobs/{id}/events
-GET  /v1/history
-GET  /v1/gallery
-POST /v1/backup/export
-POST /v1/backup/import
+GPT_IMAGE_ENDPOINT              Images endpoint
+GPT_IMAGE_API_KEY               Images API key
+GPT_AGENT_ENDPOINT              Agent endpoint
+FAL_KEY                         fal.ai key
+GPT_PLAYGROUND_API_TOKEN        非本机 API 认证
+GPT_IMAGE_PLAYGROUND_DATA       运行数据目录
+GPT_IMAGE_PLAYGROUND_ATTACHMENTS 图片输出目录
+GPT_IMAGE_PLAYGROUND_INPUT_ROOT 额外输入图片白名单目录
 ```
 
-Set `GPT_PLAYGROUND_API_TOKEN` before binding to a non-localhost address. Use `/v1/jobs/{id}/events` for SSE progress events.
+规则：
 
-## Safety Contract
+- Key 只来自环境变量或本地 `600` 权限连接文件；不写入任务、历史、日志、响应或浏览器存储。
+- REST 默认拒绝远程图片 URL；本地图片必须位于允许目录。
+- ZIP 恢复先校验并 staging；物理删除图片必须显式请求。
+- 不要把真实 Key、连接文件、运行时产物或生成图片提交到 Git。
 
-- API keys come from user-project environment variables or the local `600` permission connection file.
-- Keys are excluded from tasks, history, logs, API responses and browser storage.
-- Remote image URLs are rejected by the REST input validator.
-- Local image paths must belong to an allowed attachment, data, skill or explicitly configured input directory.
-- ZIP restore validates archive paths and uses staging before applying changes.
-- Physical image deletion requires an explicit request.
-
-## Verification
+## 验证与排错
 
 ```sh
 python3 scripts/skill.py check
@@ -153,3 +140,21 @@ python3 -m py_compile scripts/*.py tests/*.py
 python3 tests/test_api.py
 python3 tests/test_providers.py
 ```
+
+排错顺序：
+
+1. 先看退出码和 JSON 的 `error`。
+2. 再看 `error.code`、`details.retryable`、`fallback_available`。
+3. 检查 Profile、endpoint、Key 环境变量和输入图片路径。
+4. 检查 `*-request.json`、`*-response.json`、`events_file`；确认没有敏感值后再提供日志。
+5. Native 网络类失败可用 `auto` 重试；配置错误、非法输入和强制 Native 失败不要盲目重试。
+
+## 相关文件
+
+- `README.md`：安装、配置、CLI/API 示例和完整说明。
+- `profiles.json`：Profile 配置。
+- `model_catalog.json`：模型目录。
+- `scripts/skill.py`：统一入口、检查和 Web 服务。
+- `scripts/playground.py`：图片生成、编辑、批量。
+- `scripts/agent.py`：Responses Agent。
+- `scripts/api_server.py`：REST/OpenAPI 服务。
