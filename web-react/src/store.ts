@@ -45,7 +45,7 @@ import {
   storeImageWithSize,
 } from './lib/db'
 import { callImageApi } from './lib/api'
-import { syncCompatGallery } from './lib/compatGallery'
+import { deleteCompatImages, setCompatFavorite, syncCompatGallery } from './lib/compatGallery'
 import { callAgentConversationTitleApi, callAgentResponsesApi, callBatchImageSingle, parseBatchImageCallArguments, type AgentApiResultImage } from './lib/agentApi'
 import { buildAgentApiInput, buildAgentContinuationInput } from './lib/agentInputBuilder'
 import { collectAgentRoundOutputImageSlots, extractAgentReferenceIds, getAgentCurrentReferenceId, getAgentGeneratedImageReferenceId } from './lib/agentImageReferences'
@@ -3790,6 +3790,7 @@ export async function updateTasksFavoriteCollections(taskIds: string[], collecti
   }
   setTasks(updated)
   await Promise.all(updated.filter((task) => changedTaskIds.has(task.id)).map((task) => putTask(task)))
+  await Promise.all(updated.filter((task) => changedTaskIds.has(task.id)).flatMap((task) => task.outputImages.map((imageId) => setCompatFavorite(imageId, task.isFavorite === true))))
   clearSelection()
   showToast(ids.length ? '收藏夹已更新' : '已取消收藏', 'success')
 }
@@ -4125,7 +4126,9 @@ async function removeTasks(taskIds: string[], updateState?: TaskDeletionStateUpd
   if (deletedTasks.length === 0 && !updateState) return 0
 
   const deletedImageIds = new Set<string>()
+  const remoteImageIds = new Set<string>()
   for (const task of deletedTasks) {
+    for (const imageId of task.outputImages) remoteImageIds.add(imageId)
     addTaskReferencedImageIds(deletedImageIds, task)
     const controller = task.agentConversationId && task.agentRoundId
       ? agentRoundControllers.get(getAgentRoundControllerKey(task.agentConversationId, task.agentRoundId))
@@ -4156,6 +4159,9 @@ async function removeTasks(taskIds: string[], updateState?: TaskDeletionStateUpd
     updatedConversations: [...updatedConversations.values()],
   })
   await deleteUnreferencedImageIds(deletedImageIds)
+  if (remoteImageIds.size) {
+    try { await deleteCompatImages([...remoteImageIds]) } catch (error) { console.warn('服务端图片删除同步失败：', error) }
+  }
   return deletedTasks.length
 }
 
