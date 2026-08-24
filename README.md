@@ -414,6 +414,7 @@ git diff --check
 python3 -m py_compile scripts/*.py tests/*.py
 python3 tests/test_api.py
 python3 tests/test_providers.py
+python3 tests/test_skill_matrix.py
 python3 scripts/skill.py doctor
 git diff --check
 ```

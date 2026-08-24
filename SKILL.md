@@ -158,3 +158,4 @@ python3 tests/test_providers.py
 - `scripts/playground.py`：图片生成、编辑、批量。
 - `scripts/agent.py`：Responses Agent。
 - `scripts/api_server.py`：REST/OpenAPI 服务。
+- `TEST_CASES.md`：多场景测试矩阵、自动化命令和当前测试结果。
