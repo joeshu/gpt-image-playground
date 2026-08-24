@@ -273,7 +273,10 @@ class NativeImagesProvider(Provider):
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(str(exc)[:2000], provider=self.name, code='native_request_failed') from exc
+            message = str(exc)[:2000]
+            lowered = message.lower()
+            code = 'provider_request_rejected' if ('http 400' in lowered or 'invalid_value' in lowered or 'user_error' in lowered) else 'native_request_failed'
+            raise ProviderError(message, provider=self.name, code=code) from exc
 
 
 class ProviderRegistry:

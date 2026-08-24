@@ -1,6 +1,6 @@
 # GPT Image Playground 测试案例
 
-版本：`2.7.2`
+版本：`2.7.3`
 
 ## 测试原则
 
@@ -84,6 +84,23 @@ doctor: ready
 2. multipart 编辑原先没有与普通生成一致的有限网络重试；已加入最多 3 次、指数退避重试。
 3. multipart HTTP 400 原先只显示底层异常；现在保留服务端 JSON 的 `code`、`message` 和 HTTP 状态，便于诊断。
 4. TLS EOF 被纳入可重试网络错误分类。
+
+## 多场景真实生图验收记录
+
+2026-08-24 使用已安装技能 `default` Profile 完成 6 个真实 Provider 场景：
+
+| ID | 场景 | 模式 | 结果 |
+|---|---|---|---|
+| R01 | 1:1 红色咖啡杯产品摄影 | auto | 通过 |
+| R02 | 16:9 海边灯塔横构图 | native | 通过 |
+| R03 | 4:5 黄色雨衣小狗，JPG | native | 通过，扩展名和 JPEG 格式一致 |
+| R04 | 透明背景蓝色玻璃星球 | native | 服务端拒绝：当前模型不支持透明背景 |
+| R05 | 参考图蓝紫电影海报调色 | native | 通过 |
+| R06 | Alpha mask 窗外夕阳编辑 | native | 通过 |
+
+R04 暴露了能力声明问题：当前 `/v1/capabilities` 报告支持透明背景，但实际模型返回 `invalid_value`。该错误已归类为 `provider_request_rejected`，不会被 Auto 当作网络错误反复回退或重试；透明背景是否可用仍以 Profile/模型实际能力为准。
+
+主要结果文件位于 `outputs/gpt-image-playground/`，每个成功任务均返回 `saved_images`、`revised_prompt`、实际执行模式和耗时。
 
 ## 暂不自动执行的验收
 

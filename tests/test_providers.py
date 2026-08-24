@@ -28,6 +28,7 @@ def main():
     from provider_base import ProviderError, _retryable_network_error
     assert ProviderError('x', code='missing_endpoint').code == 'missing_endpoint'
     assert _retryable_network_error(ProviderError('Native multipart 请求失败: EOF occurred in violation of protocol', code='native_request_failed'))
+    assert not _retryable_network_error(ProviderError('HTTP 400 from image endpoint: invalid_value', code='provider_request_rejected'))
 
     import provider_base as pb
     with tempfile.TemporaryDirectory() as temp:
