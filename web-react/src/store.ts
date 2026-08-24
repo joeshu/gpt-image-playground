@@ -45,7 +45,7 @@ import {
   storeImageWithSize,
 } from './lib/db'
 import { callImageApi } from './lib/api'
-import { deleteCompatImages, setCompatFavorite, syncCompatGallery } from './lib/compatGallery'
+import { deleteCompatImages, setCompatFavorite, syncCompatGallery, syncCompatHistory } from './lib/compatGallery'
 import { callAgentConversationTitleApi, callAgentResponsesApi, callBatchImageSingle, parseBatchImageCallArguments, type AgentApiResultImage } from './lib/agentApi'
 import { buildAgentApiInput, buildAgentContinuationInput } from './lib/agentInputBuilder'
 import { collectAgentRoundOutputImageSlots, extractAgentReferenceIds, getAgentCurrentReferenceId, getAgentGeneratedImageReferenceId } from './lib/agentImageReferences'
@@ -1496,7 +1496,8 @@ export async function initStore() {
       byId.set(remote.id, local ? { ...remote, ...local, outputImages: local.outputImages.length ? local.outputImages : remote.outputImages } : remote)
     }
     mergedTasks = [...byId.values()].sort((a, b) => b.createdAt - a.createdAt)
-    await Promise.all(remoteTasks.map((task) => putTask(task)))
+    mergedTasks = await syncCompatHistory(mergedTasks)
+    await Promise.all(mergedTasks.map((task) => putTask(task)))
   } catch (error) {
     console.warn('兼容后端画廊同步失败，继续使用本地任务：', error)
   }

@@ -52,6 +52,39 @@ export async function syncCompatGallery(limit = 200): Promise<TaskRecord[]> {
   return tasks
 }
 
+export async function syncCompatHistory(existing: TaskRecord[], limit = 200): Promise<TaskRecord[]> {
+  const response = await fetch(url(`/v1/history?limit=${limit}`), { headers: { Accept: 'application/json', ...authHeaders() } })
+  if (!response.ok) throw new Error(`历史同步失败（HTTP ${response.status}）`)
+  const body = await response.json() as { items?: Array<Record<string, unknown>> }
+  const byTask = new Map<string, TaskRecord>()
+  for (const task of existing) {
+    if (!byTask.has(task.id)) byTask.set(task.id, { ...task })
+    else {
+      const current = byTask.get(task.id)!
+      current.outputImages = [...new Set([...current.outputImages, ...task.outputImages])]
+    }
+  }
+  for (const item of body.items ?? []) {
+    const id = typeof item.task_id === 'string' ? item.task_id : ''
+    if (!id) continue
+    const current = byTask.get(id)
+    const rawStatus = String(item.status || '')
+    const status = rawStatus === 'failed' || rawStatus === 'partial_failed' ? 'error' : rawStatus === 'completed' || rawStatus === 'dry_run' ? 'done' : current?.status || 'error'
+    const result = item.result && typeof item.result === 'object' ? item.result as Record<string, unknown> : {}
+    const error = typeof result.error === 'string' ? result.error : typeof item.error === 'string' ? item.error : status === 'error' ? `任务状态：${rawStatus || 'failed'}` : null
+    const createdAt = Date.parse(String(item.created_at || '')) || current?.createdAt || Date.now()
+    byTask.set(id, {
+      ...(current || { id, params: { ...DEFAULT_PARAMS }, inputImageIds: [], outputImages: [], elapsed: null, finishedAt: null }),
+      id, prompt: typeof item.prompt === 'string' ? item.prompt : current?.prompt || '',
+      params: { ...DEFAULT_PARAMS, ...(current?.params || {}), ...(typeof item.size === 'string' ? { size: item.size } : {}) },
+      apiModel: typeof item.model === 'string' ? item.model : current?.apiModel,
+      status, error, createdAt, finishedAt: status === 'done' || status === 'error' ? createdAt : null,
+      sourceMode: 'gallery', rawResponsePayload: JSON.stringify(item),
+    })
+  }
+  return [...byTask.values()].sort((a, b) => b.createdAt - a.createdAt)
+}
+
 export async function setCompatFavorite(imageId: string, favorite: boolean) {
   const response = await fetch(url('/v1/favorite'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ image_id: imageId, favorite }) })
   if (!response.ok) throw new Error('收藏状态同步失败')
