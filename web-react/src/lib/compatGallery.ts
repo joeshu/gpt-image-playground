@@ -3,7 +3,7 @@ import { putImage, putTask } from './db'
 
 const ROOT = (import.meta.env.VITE_COMPAT_API_ROOT || '').replace(/\/$/, '')
 const TOKEN = import.meta.env.VITE_COMPAT_API_TOKEN || ''
-const authHeaders = () => TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}
+const authHeaders = (): Record<string, string> => TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}
 const DEFAULT_PARAMS: TaskParams = { size: 'auto', quality: 'auto', output_format: 'png', output_compression: null, moderation: 'auto', n: 1, transparent_output: false }
 
 type ServerImage = { image_id?: string; task_id?: string; path?: string; thumbnail_path?: string; created_at?: string; favorite?: number; metadata_json?: string }
