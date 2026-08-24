@@ -21,7 +21,9 @@ def main():
             src = ROOT / 'scripts' / name
             if src.is_file(): shutil.copy2(src, stage / 'scripts' / name)
         dist = ROOT / 'web-react' / 'dist'
-        web = dist if dist.is_dir() else ROOT / 'web'
+        if not dist.is_dir():
+            raise SystemExit('缺少 web-react/dist：先运行 npm run build，或等待 build-web Actions 发布构建产物')
+        web = dist
         for src in web.iterdir():
             dst = stage / 'web' / src.name
             shutil.copytree(src, dst) if src.is_dir() else shutil.copy2(src, dst)

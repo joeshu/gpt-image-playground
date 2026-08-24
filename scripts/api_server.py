@@ -575,9 +575,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def serve_web(self, path):
+        # Published installations contain the prebuilt React app; keep legacy web as fallback.
+        react_root = (ROOT / 'web-react' / 'dist').resolve()
+        web_root = react_root if react_root.is_dir() else (ROOT / 'web').resolve()
         relative = 'index.html' if path in ('/', '/index.html') else path.removeprefix('/web/')
-        candidate = (ROOT / 'web' / relative).resolve()
-        web_root = (ROOT / 'web').resolve()
+        candidate = (web_root / relative).resolve()
         if web_root not in candidate.parents and candidate != web_root:
             return self.send_error(403, 'forbidden', '禁止访问')
         if not candidate.is_file(): return self.send_error(404, 'not_found', '资源不存在')
@@ -591,7 +593,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path in ('/', '/index.html') or parsed.path.startswith('/web/'):
+        react_dist = (ROOT / 'web-react' / 'dist').is_dir()
+        if parsed.path in ('/', '/index.html') or parsed.path.startswith('/web/') or (react_dist and (parsed.path.startswith('/assets/') or parsed.path in ('/manifest.webmanifest', '/sw.js'))):
             return self.serve_web(parsed.path)
         if not self.authorized(): return self.send_error(401, 'unauthorized', '需要 Bearer Token')
         try:

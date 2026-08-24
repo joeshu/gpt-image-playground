@@ -36,7 +36,7 @@ outputs/gpt-image-playground/
 python3 scripts/package_runtime.py
 ```
 
-打包器只包含 Python 后端、必要配置、`web-react/dist`（若存在）或旧版 `web/` 回退页面，不包含 `web-react/src`、`node_modules`、测试、`.git`、缓存和生成产物。Provider API Key 仍只放在后端环境变量或运行时 Profile 中。
+打包器只包含 Python 后端、必要配置和已经构建好的 `web-react/dist`，不包含 `web-react/src`、`node_modules`、测试、`.git`、缓存和生成产物。安装包中的 React Web 可直接打开，不需要 Node.js/npm。Provider API Key 仍只放在后端环境变量或运行时 Profile 中。
 
 ## 跨 Agent 调用
 
