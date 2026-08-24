@@ -2,7 +2,7 @@
 
 > 图片生成与编辑编排技能：CLI、REST/OpenAPI、Responses Agent、Web 工作台和多种 Provider 的统一入口。
 
-**当前版本：`2.7.3`** · Python-only runtime · 不需要 Node.js/npm
+**当前版本：`2.7.4`** · Python-only runtime · 不需要 Node.js/npm
 
 ## 目录
 
@@ -30,6 +30,8 @@
 | 人工生成、画廊、历史、设置 | Web 工作台 |
 
 支持：Native/Script/Auto 执行模式、OpenAI-compatible Images/Responses、fal.ai Queue、声明式 Custom Provider、异步 Job、SSE、历史、SQLite 画廊、收藏、缩略图和备份。
+
+> 兼容协议不等于能力完全一致：透明背景等高级参数必须按实际 endpoint + model 验证。官方 GPT Image 文档说明 `gpt-image-2` 支持 `background=transparent`（preview），但当前 `api.geniuscoder.net` 网关实测拒绝该参数。
 
 ## 安装
 
@@ -255,6 +257,33 @@ Agent 支持：
 - 会话恢复、分支和 pending tool call 恢复；
 - `tool_call_id` 缓存，恢复时只执行未完成调用；
 - JSONL `events_file` 和 REST Job SSE。
+
+## 透明背景能力排查
+
+官方 GPT Image 文档当前说明：`gpt-image-2` 可在 preview 中使用：
+
+```json
+{"background":"transparent","output_format":"png"}
+```
+
+但 `OpenAI-compatible` 网关可能只实现协议，不实现上游全部能力。排查顺序：
+
+1. 确认请求实际使用的 `endpoint` 和 `model`；
+2. 查看生成任务的 `*-native-request.json`，确认确实发送了 `background=transparent`；
+3. 先用相同 Profile 做普通 `gpt-image-2` 低成本生成，确认模型路由可用；
+4. 再测试透明背景；
+5. 若返回 `invalid_value` 或 `Transparent background is not supported for this model.`，这是网关能力限制，不是本地参数错误。
+
+当前已验证的 `api.geniuscoder.net` 能力：
+
+| 能力 | 结果 |
+|---|---|
+| `gpt-image-2` 普通生成 | 可用 |
+| `gpt-image-2` PNG/JPG | 可用 |
+| `gpt-image-2` 参考图和 Alpha mask 编辑 | 可用 |
+| `gpt-image-2` 原生透明背景 | 当前网关不可用 |
+
+透明背景失败时不要无限重试；改用 `background=opaque/auto`、切换已确认支持的 endpoint，或明确告知用户本地抠图是非等价降级。
 
 ## Provider 与 Profile
 

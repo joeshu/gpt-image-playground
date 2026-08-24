@@ -1,6 +1,6 @@
 ---
 name: gpt-image-playground
-version: 2.7.3
+version: 2.7.4
 description: "图片生成与编辑编排技能：支持文生图、参考图、遮罩、批量任务、Native/Script/Auto 双执行模式、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job 和 SSE。当用户要求生成、编辑、批量处理图片，或需要配置图片 Provider、调用 Agent/API、排查生成失败时使用。"
 ---
 
@@ -27,6 +27,26 @@ python3 scripts/playground.py --validate-profiles
 - Provider：OpenAI-compatible Images、Responses、fal.ai Queue、声明式 Custom Provider。
 - Agent：多轮规划、工具调用、会话恢复、分支、稳定图片 ID、`<ref id="..." />` 引用、SSE/JSONL 事件。
 - 服务：REST/OpenAPI、异步 Job、Job SSE、历史、SQLite 画廊、收藏、缩略图和备份。
+
+### 能力声明与实际网关能力
+
+`OpenAI-compatible` 只表示请求协议兼容，不表示每个网关实现了上游模型的全部能力。能力判断必须同时看：
+
+1. Profile 的 `endpoint`、`model` 和 `provider`；
+2. `GET /v1/capabilities` 的声明；
+3. 一次低成本 Dry Run 或真实探测请求的实际响应。
+
+特别是透明背景：官方 GPT Image 文档说明 `gpt-image-2` 支持 `background=transparent`（preview，输出使用 PNG/WebP）；但当前 `api.geniuscoder.net` 网关的 `gpt-image-2` 实测拒绝该参数，返回 `invalid_value`。因此不要仅根据模型名推断透明背景可用。
+
+遇到以下错误时，归类为 Provider 能力/参数拒绝，不要盲目重试或 Auto 回退：
+
+```text
+provider_request_rejected
+invalid_value
+Transparent background is not supported for this model.
+```
+
+若当前网关不支持透明背景：改用 `background=opaque/auto`，或切换到确认支持该能力的 endpoint；本地抠图只能作为非等价降级方案。
 
 不要把本技能当作前端构建项目：运行时 Web 使用原生 HTML/CSS/JavaScript，不需要 Node.js/npm。
 
