@@ -45,6 +45,7 @@ import {
   storeImageWithSize,
 } from './lib/db'
 import { callImageApi } from './lib/api'
+import { syncCompatGallery } from './lib/compatGallery'
 import { callAgentConversationTitleApi, callAgentResponsesApi, callBatchImageSingle, parseBatchImageCallArguments, type AgentApiResultImage } from './lib/agentApi'
 import { buildAgentApiInput, buildAgentContinuationInput } from './lib/agentInputBuilder'
 import { collectAgentRoundOutputImageSlots, extractAgentReferenceIds, getAgentCurrentReferenceId, getAgentGeneratedImageReferenceId } from './lib/agentImageReferences'
@@ -1486,8 +1487,21 @@ export async function initStore() {
   await Promise.all(tasks
     .filter((task, index) => normalizedFavorites.changed || interruptedTaskIds.has(task.id) || task.rawResponsePayload !== markedTasks[index]?.rawResponsePayload)
     .map((task) => putTask(task)))
-  useStore.getState().setTasks(tasks)
-  showSupportPromptForExistingLocalData(tasks)
+  let mergedTasks = tasks
+  try {
+    const remoteTasks = await syncCompatGallery()
+    const byId = new Map(tasks.map((task) => [task.id, task]))
+    for (const remote of remoteTasks) {
+      const local = byId.get(remote.id)
+      byId.set(remote.id, local ? { ...remote, ...local, outputImages: local.outputImages.length ? local.outputImages : remote.outputImages } : remote)
+    }
+    mergedTasks = [...byId.values()].sort((a, b) => b.createdAt - a.createdAt)
+    await Promise.all(remoteTasks.map((task) => putTask(task)))
+  } catch (error) {
+    console.warn('兼容后端画廊同步失败，继续使用本地任务：', error)
+  }
+  useStore.getState().setTasks(mergedTasks)
+  showSupportPromptForExistingLocalData(mergedTasks)
   for (const task of tasks) {
     if (
       task.apiProvider === 'fal' &&

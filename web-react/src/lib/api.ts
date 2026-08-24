@@ -9,9 +9,10 @@ export { normalizeBaseUrl } from './devProxy'
  * transport is redirected to this project's /v1/generate contract.
  */
 const API_ROOT = (import.meta.env.VITE_COMPAT_API_ROOT || '').replace(/\/$/, '')
+const API_TOKEN = import.meta.env.VITE_COMPAT_API_TOKEN || ''
 
 function apiUrl(path: string) { return `${API_ROOT}${path}` }
-function headers() { return { 'Content-Type': 'application/json', Accept: 'application/json' } }
+function headers() { return { 'Content-Type': 'application/json', Accept: 'application/json', ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}) } }
 
 function outputValues(value: unknown, result: unknown[] = []): unknown[] {
   if (Array.isArray(value)) value.forEach(item => outputValues(item, result))
@@ -45,7 +46,10 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   if (opts.maskDataUrl) payload.mask = opts.maskDataUrl
   const response = await fetch(apiUrl('/v1/generate'), { method: 'POST', headers: headers(), body: JSON.stringify(payload) })
   const body = await response.json().catch(() => ({})) as Record<string, unknown>
-  if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : `图片生成失败（HTTP ${response.status}）`)
+  if (!response.ok) {
+    const error = typeof body.error === 'string' ? body.error : body.error && typeof body.error === 'object' && typeof (body.error as Record<string, unknown>).message === 'string' ? (body.error as Record<string, unknown>).message as string : `图片生成失败（HTTP ${response.status}）`
+    throw new Error(error)
+  }
 
   const candidates = outputValues(body.saved_images ?? body.images ?? body.data ?? body)
   const parsed = candidates.map(imageSource).filter((item): item is { image: string; rawUrl?: string } => Boolean(item))
