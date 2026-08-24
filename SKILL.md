@@ -1,7 +1,7 @@
 ---
 name: gpt-image-playground
 description: 图片生成与编辑编排技能。支持文生图、参考图、遮罩、批量任务、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI 和异步 Job。当用户需要生成、编辑、批量处理图片，或需要图片 Provider、Agent、API 能力时使用。
-version: 2.7.0
+version: 2.7.1
 ---
 
 # GPT Image Playground
