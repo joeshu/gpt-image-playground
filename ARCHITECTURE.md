@@ -22,6 +22,14 @@ This file originated from the separately installed Minis skill `gpt-image-tool`,
 
 The external skill is optional after installation and can be disabled independently.
 
+## Portable runtime contract
+
+The default runtime requires Python 3.9+ and no third-party packages. The Web
+client is static HTML/CSS/JavaScript and has no build command. Agents should
+discover entrypoints and contracts with `python3 scripts/skill.py manifest`.
+`requests` remains an optional dependency only for declarative custom Provider
+manifests; it is not required for Images, Responses, fal.ai, Agent, REST, or Web.
+
 ## Model selection
 
 A Profile can specify a model such as `gpt-5.6-sol`. Explicit CLI/task model selection wins over Profile `omit_model`. `omit_model` is only for providers that require the model field to be absent. Specifying both explicitly is rejected.

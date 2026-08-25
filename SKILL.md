@@ -13,6 +13,7 @@ description: "图片生成与编辑编排技能：支持文生图、参考图、
 cd /path/to/gpt-image-playground
 python3 scripts/skill.py check
 python3 scripts/skill.py doctor
+python3 scripts/skill.py manifest
 python3 scripts/playground.py --validate-profiles
 ```
 
@@ -64,7 +65,7 @@ Transparent background is not supported for this model.
 
 若当前网关不支持透明背景：改用 `background=opaque/auto`，或切换到确认支持该能力的 endpoint；本地抠图只能作为非等价降级方案。
 
-不要把本技能当作前端构建项目：运行时 Web 使用原生 HTML/CSS/JavaScript，不需要 Node.js/npm。
+不要把本技能当作前端构建项目：运行时 Web 使用原生 HTML/CSS/JavaScript，不需要 Node.js/npm。核心 Images、Responses、fal.ai、Agent、REST 和 Web 路径只依赖 Python 3.9+ 标准库；`requests` 仅用于可选的声明式 Custom Provider。
 
 ## 入口选择
 
@@ -75,6 +76,8 @@ Transparent background is not supported for this model.
 | 统一 Agent/CLI 调用 | `python3 scripts/skill.py generate/agent` |
 | 给其他程序提供 API | `python3 scripts/api_server.py` |
 | 人工操作、历史和画廊 | `python3 scripts/skill.py serve` 后打开 Web |
+
+其他 AI Agent 首次接入时先运行 `python3 scripts/skill.py manifest`，直接读取机器可解析的入口、依赖和输出协议，不要猜测运行命令。
 
 通用入口示例：
 

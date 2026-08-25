@@ -2,7 +2,7 @@
 
 > 图片生成与编辑编排技能：CLI、REST/OpenAPI、Responses Agent、Web 工作台和多种 Provider 的统一入口。
 
-**当前版本：`2.8.0`** · Python-only runtime · 不需要 Node.js/npm
+**当前版本：`2.9.0`** · 零构建 Web · 核心运行时仅需 Python 3.9+
 
 ## 目录
 
@@ -71,8 +71,11 @@ python3 scripts/package_runtime.py
 ```sh
 python3 scripts/skill.py check
 python3 scripts/skill.py doctor
+python3 scripts/skill.py manifest
 python3 scripts/playground.py --validate-profiles
 ```
+
+`manifest` 输出机器可读的入口、依赖、Web 构建方式和 JSON stdout 契约，适合 Codex、Claude Code、Gemini CLI、本地 Agent 或普通自动化脚本快速接入。Web 直接从 `web/index.html` 提供，不需要 Node.js、npm 或前端构建器。
 
 ### 2. 配置连接
 

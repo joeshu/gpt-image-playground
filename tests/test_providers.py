@@ -37,6 +37,20 @@ def main():
     else:
         raise AssertionError('remote image URL must be denied by default')
 
+    import generate
+    class JSONFixture(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get('Content-Length', '0'))
+            received = json.loads(self.rfile.read(length).decode())
+            payload = json.dumps({'ok': True, 'received': received}).encode()
+            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(payload))); self.end_headers(); self.wfile.write(payload)
+        def log_message(self, *_): return
+    json_fixture = ThreadingHTTPServer(('127.0.0.1', 0), JSONFixture)
+    json_thread = threading.Thread(target=json_fixture.serve_forever, daemon=True); json_thread.start()
+    value = generate.request_json('POST', f'http://127.0.0.1:{json_fixture.server_port}/images', {'Content-Type': 'application/json'}, {'prompt': 'fixture'}, timeout=5)
+    assert value == {'ok': True, 'received': {'prompt': 'fixture'}}
+    json_fixture.shutdown(); json_fixture.server_close(); json_thread.join(timeout=2)
+
     with tempfile.TemporaryDirectory() as temp:
         temp = Path(temp); source = temp / 'source.png'; mask = temp / 'mask.png'
         (temp / 'out').mkdir(); (temp / 'work').mkdir()

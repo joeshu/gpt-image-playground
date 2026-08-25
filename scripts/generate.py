@@ -8,13 +8,9 @@ import re
 import sys
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
-
-try:
-    import requests
-except Exception:
-    print("requests is required. Install with: apk add py3-requests", file=sys.stderr)
-    sys.exit(2)
+from typing import Optional
 
 # Endpoint and API key are read from environment variables when available.
 # This keeps provider-specific URLs and secrets out of task/config files.
@@ -109,12 +105,12 @@ def safe_endpoint(endpoint: str) -> str:
     return endpoint
 
 
-def response_summary(resp):
+def response_summary(status_code, headers, text):
     return {
-        "status_code": resp.status_code,
-        "content_type": resp.headers.get("content-type", ""),
-        "content_length": resp.headers.get("content-length", ""),
-        "text_preview": resp.text[:1000],
+        "status_code": status_code,
+        "content_type": headers.get("content-type", ""),
+        "content_length": headers.get("content-length", ""),
+        "text_preview": text[:1000],
     }
 
 
@@ -236,27 +232,33 @@ def build_headers(api_key: str):
     }
 
 
-def request_json(method: str, url: str, headers: dict, payload=None, timeout=REQUEST_TIMEOUT_DEFAULT, debug_prefix: Path | None = None):
+def request_json(method: str, url: str, headers: dict, payload=None, timeout=REQUEST_TIMEOUT_DEFAULT, debug_prefix: Optional[Path] = None):
+    body = json.dumps(payload).encode('utf-8') if method.upper() == 'POST' else None
+    request = urllib.request.Request(url, data=body, headers=headers, method=method.upper())
     try:
-        if method.upper() == "POST":
-            r = requests.post(url, json=payload, headers=headers, timeout=(CONNECT_TIMEOUT_DEFAULT, timeout))
-        else:
-            r = requests.get(url, headers=headers, timeout=(CONNECT_TIMEOUT_DEFAULT, timeout))
-    except requests.RequestException as e:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status_code = response.status
+            response_headers = dict(response.headers.items())
+            text = response.read().decode('utf-8', errors='replace')
+    except urllib.error.HTTPError as e:
+        status_code = e.code
+        response_headers = dict(e.headers.items()) if e.headers else {}
+        text = e.read().decode('utf-8', errors='replace')
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
         if debug_prefix is not None:
             write_json(debug_prefix.parent / f"{debug_prefix.name}-error.json", {"error": str(e), "url": url})
         raise RuntimeError(f"Network request failed: {e}") from e
     if debug_prefix is not None:
-        write_json(debug_prefix.parent / f"{debug_prefix.name}-meta.json", response_summary(r))
-        header_text = "\n".join(f"{k}: {v}" for k, v in r.headers.items())
-        write_text(debug_prefix.parent / f"{debug_prefix.name}-headers.txt", f"HTTP {r.status_code}\n{header_text}\n")
-        write_text(debug_prefix.parent / f"{debug_prefix.name}-raw.txt", r.text)
-    if not r.ok:
-        raise RuntimeError(f"HTTP {r.status_code} from image endpoint: {r.text[:1000]}")
+        write_json(debug_prefix.parent / f"{debug_prefix.name}-meta.json", response_summary(status_code, response_headers, text))
+        header_text = "\n".join(f"{k}: {v}" for k, v in response_headers.items())
+        write_text(debug_prefix.parent / f"{debug_prefix.name}-headers.txt", f"HTTP {status_code}\n{header_text}\n")
+        write_text(debug_prefix.parent / f"{debug_prefix.name}-raw.txt", text)
+    if not 200 <= status_code < 300:
+        raise RuntimeError(f"HTTP {status_code} from image endpoint: {text[:1000]}")
     try:
-        return r.json()
+        return json.loads(text)
     except ValueError as e:
-        raise RuntimeError(f"Image endpoint returned non-JSON content: {r.text[:1000]}") from e
+        raise RuntimeError(f"Image endpoint returned non-JSON content: {text[:1000]}") from e
 
 
 def maybe_poll(resp_json, endpoint: str, headers: dict, poll_interval: int, poll_timeout: int, workspace_dir: Path, prefix: str):

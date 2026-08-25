@@ -48,7 +48,26 @@ def check():
         'root': str(skill_root()),
         'data_dir': str(data_root()),
         'attachments_dir': str(attachments_root()),
-        'commands': ['generate', 'agent', 'serve', 'check', 'doctor'],
+        'commands': ['generate', 'agent', 'serve', 'check', 'doctor', 'manifest'],
+    }
+
+
+def manifest():
+    return {
+        'schema_version': 1,
+        'name': 'gpt-image-playground',
+        'version': VERSION,
+        'runtime': {'python': '>=3.9', 'required_packages': [], 'web_build': None},
+        'entrypoints': {
+            'check': [sys.executable, 'scripts/skill.py', 'check'],
+            'doctor': [sys.executable, 'scripts/skill.py', 'doctor'],
+            'generate': [sys.executable, 'scripts/skill.py', 'generate'],
+            'agent': [sys.executable, 'scripts/skill.py', 'agent'],
+            'serve': [sys.executable, 'scripts/skill.py', 'serve'],
+        },
+        'contracts': {'stdout': 'json', 'success_exit_code': 0, 'dry_run_flag': '--dry-run'},
+        'optional_dependencies': {'custom_provider': ['requests>=2.31,<3']},
+        'web': {'type': 'static', 'source': 'web/index.html', 'build_command': None},
     }
 
 
@@ -67,9 +86,9 @@ def doctor():
     checks['profiles'] = 'ok' if (ROOT / 'profiles.json').is_file() else 'warning: profiles.json missing'
     try:
         import requests  # noqa: F401
-        checks['requests'] = 'ok'
+        checks['optional:custom_provider'] = 'ok'
     except ImportError:
-        checks['requests'] = 'missing: install Python package requests'
+        checks['optional:custom_provider'] = 'unavailable: install requests only if using a custom provider'
     for path in (data_root(), attachments_root()):
         try:
             path.mkdir(parents=True, exist_ok=True)
@@ -82,10 +101,10 @@ def doctor():
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Image Playground 通用 Agent 技能入口')
-    parser.add_argument('command', choices=['check', 'doctor', 'generate', 'agent', 'serve'])
+    parser.add_argument('command', choices=['check', 'doctor', 'generate', 'agent', 'serve', 'manifest'])
     args, remainder = parser.parse_known_args()
     try:
-        result = doctor() if args.command == 'doctor' else check() if args.command == 'check' else run_script(
+        result = doctor() if args.command == 'doctor' else check() if args.command == 'check' else manifest() if args.command == 'manifest' else run_script(
             {'generate': 'playground.py', 'agent': 'agent.py', 'serve': 'api_server.py'}[args.command],
             remainder,
         )

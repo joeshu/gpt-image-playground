@@ -5,6 +5,17 @@ import argparse, io, json, os, shutil, tarfile, tempfile, time, urllib.request
 
 DEFAULT_REPO = 'joeshu/gpt-image-playground'
 
+
+def safe_extract(archive, destination):
+    root = destination.resolve()
+    for member in archive.getmembers():
+        target = (destination / member.name).resolve()
+        if root != target and root not in target.parents:
+            raise RuntimeError(f'安装包包含不安全路径: {member.name}')
+        if member.issym() or member.islnk() or member.isdev():
+            raise RuntimeError(f'安装包包含不支持的链接或设备文件: {member.name}')
+    archive.extractall(destination)
+
 def main():
     p = argparse.ArgumentParser(description='Install prebuilt GPT Image Playground skill')
     p.add_argument('--target', default=os.environ.get('SKILL_ROOT', str(Path.home() / '.skills' / 'gpt-image-playground')))
@@ -30,7 +41,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='gip-install-') as td:
         stage = Path(td) / 'stage'; stage.mkdir()
         with tarfile.open(fileobj=io.BytesIO(payload), mode='r:gz') as archive:
-            archive.extractall(stage, filter='data')
+            safe_extract(archive, stage)
         roots = [x for x in stage.iterdir() if x.is_dir()]
         if len(roots) != 1: raise RuntimeError('下载包结构无效')
         source = roots[0]
