@@ -65,7 +65,7 @@ def manifest():
             'agent': [sys.executable, 'scripts/skill.py', 'agent'],
             'serve': [sys.executable, 'scripts/skill.py', 'serve'],
         },
-        'contracts': {'stdout': 'json', 'success_exit_code': 0, 'dry_run_flag': '--dry-run'},
+        'contracts': {'stdout': 'json', 'success_exit_code': 0, 'dry_run_flag': '--dry-run', 'task_schema_version': 1},
         'optional_dependencies': {'custom_provider': ['requests>=2.31,<3']},
         'web': {'type': 'static', 'source': 'web/index.html', 'build_command': None},
     }
@@ -73,6 +73,7 @@ def manifest():
 
 def doctor():
     from runtime_paths import attachments_root, data_root, skill_root
+    from task_store import database_status
     checks = {}
     try:
         import sqlite3  # noqa: F401
@@ -95,6 +96,11 @@ def doctor():
             checks[f'write:{path.name}'] = 'ok'
         except OSError as exc:
             checks[f'write:{path.name}'] = f'failed: {exc}'
+    try:
+        database = database_status()
+        checks['database'] = 'ok' if database['journal_mode'] == 'wal' else f"warning: journal_mode={database['journal_mode']}"
+    except Exception as exc:
+        checks['database'] = f'failed: {exc}'
     hard = [value for value in checks.values() if str(value).startswith('failed')]
     return {'status': 'ready' if not hard else 'failed', 'name': 'gpt-image-playground', 'version': VERSION, 'root': str(skill_root()), 'checks': checks}
 

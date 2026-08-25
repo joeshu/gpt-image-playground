@@ -18,14 +18,16 @@ def check(condition, message):
 
 
 def main():
-    check(api.VERSION == '3.0.0', 'version')
+    check(api.VERSION == '3.1.0', 'version')
     from pathlib import Path as _Path
     import json as _json
     catalog = _json.loads((ROOT / 'model_catalog.json').read_text())
     check({'gpt-image-2', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'} <= {item['id'] for item in catalog['models']}, 'model catalog')
-    from task_store import record, search
+    from task_store import database_status, record, search
     with tempfile.TemporaryDirectory() as temp:
         db = Path(temp) / 'tasks.sqlite3'; record({'task_id':'t1','created_at':'2026','status':'completed','prompt':'lake','profile':'p'}, db); check(search('lake', path=db)[0]['task_id'] == 't1', 'task store')
+        db_status = database_status(db)
+        check(db_status == {'schema_version': 1, 'journal_mode': 'wal', 'busy_timeout_ms': 10000}, 'sqlite wal configuration')
     check(api.safe_json('data:image/png;base64,abc').startswith('[data URL omitted'), 'redaction')
     with tempfile.TemporaryDirectory() as idem_temp:
         old_work = api.API_WORK; api.API_WORK = Path(idem_temp)
@@ -56,7 +58,9 @@ def main():
         result = api.run_executor([sys.executable, str(output_script)], {}, 10)
         check(result == {'status': 'ok'}, 'process output collection')
     normalized_batch = api.normalize_task({'batch_id': 'batch-1', 'tasks': [{'prompt': 'a'}, {'prompt': 'b'}]}, batch=True)
-    check(normalized_batch['batch_id'] == 'batch-1' and len(normalized_batch['tasks']) == 2, 'batch normalization')
+    check(normalized_batch['schema_version'] == 1 and normalized_batch['batch_id'] == 'batch-1' and len(normalized_batch['tasks']) == 2, 'batch normalization')
+    try: api.normalize_task({'prompt': 'x', 'execution_mode': 'invalid'}); raise AssertionError('invalid enum accepted')
+    except api.TaskValidationError as exc: check(exc.field == 'execution_mode', 'structured schema error')
     old_pool, old_work, old_jobs = api.JOB_POOL, api.API_WORK, api.JOBS
     class FakeFuture: pass
     class FakePool:
@@ -67,6 +71,16 @@ def main():
         job = api.get_job(submitted['job_id'])
         check(job['parent_task_id'] == 'batch-1' and job['total'] == 2, 'batch parent metadata')
     api.JOB_POOL, api.API_WORK, api.JOBS = old_pool, old_work, old_jobs
+    with tempfile.TemporaryDirectory() as restore_temp:
+        old_work, old_jobs = api.API_WORK, api.JOBS
+        api.API_WORK, api.JOBS = Path(restore_temp), {}
+        pending = {'id': 'job-restore', 'kind': 'generate', 'status': 'running', 'created_at': time.time()}
+        api.save_job(pending)
+        api.restore_jobs()
+        restored = api.get_job('job-restore')
+        check(restored['status'] == 'interrupted', 'interrupted job status')
+        check(restored['error']['code'] == 'job_interrupted' and restored['error']['retryable'], 'interrupted job error contract')
+        api.API_WORK, api.JOBS = old_work, old_jobs
     check(api.normalize_task({'prompt': 'x', 'endpoint': 'evil', 'api_key': 'secret'})['prompt'] == 'x', 'normalization')
     try: api.validate_input_image('/etc/passwd'); raise AssertionError('path accepted')
     except ValueError: pass

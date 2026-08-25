@@ -41,6 +41,10 @@ try:
     from runtime_paths import allowed_roots, attachments_root, data_root, skill_root
 except ImportError:
     from scripts.runtime_paths import allowed_roots, attachments_root, data_root, skill_root
+try:
+    from task_schema import TaskValidationError, normalize_task as normalize_task_schema
+except ImportError:
+    from scripts.task_schema import TaskValidationError, normalize_task as normalize_task_schema
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -157,27 +161,7 @@ def validate_input_image(value):
 
 
 def normalize_task(task, batch=False):
-    if not isinstance(task, dict): raise ValueError('请求体必须是 JSON 对象')
-    result = dict(task)
-    for key in ('images', 'image_urls'):
-        if key in result:
-            values = result[key]
-            if not isinstance(values, list) or len(values) > 16:
-                raise ValueError('参考图必须是最多 16 项的数组')
-            result[key] = [validate_input_image(item) for item in values]
-    if 'mask' in result and result['mask']:
-        result['mask'] = validate_input_image(result['mask'])
-    if 'tasks' in result:
-        if not isinstance(result['tasks'], list) or not result['tasks'] or len(result['tasks']) > 100:
-            raise ValueError('tasks 必须是 1-100 项的数组')
-        result['tasks'] = [normalize_task(item) for item in result['tasks']]
-    if not batch and 'tasks' in result:
-        raise ValueError('单任务接口不接受 tasks，请使用 /v1/batch')
-    result.pop('endpoint', None)
-    result.pop('agent_endpoint', None)
-    result.pop('api_key', None)
-    result.pop('api_key_env', None)
-    return result
+    return normalize_task_schema(task, batch=batch, validate_image=validate_input_image)
 
 
 def profile_exists(profile_id):
@@ -471,10 +455,15 @@ def execute_job(job_id, kind, payload, timeout):
     except Exception as exc:
         with JOB_LOCK:
             job['status'] = 'failed'
-            job['error'] = str(exc)[-4000:]
+            meta = classify_execution_error(exc, payload.get('execution_mode', 'auto'))
+            if isinstance(exc, TaskValidationError):
+                meta.update({'code': exc.code, 'field': exc.field, 'retryable': False, 'fallback_available': False})
+            elif isinstance(exc, subprocess.TimeoutExpired):
+                meta.update({'code': 'executor_timeout', 'retryable': True})
+            job['error'] = {'message': str(exc)[-4000:], **meta}
             job['finished_at'] = time.time()
             save_job(job)
-        emit_job(job_id, 'failed', {'status': 'failed', 'error': str(exc)[-4000:]})
+        emit_job(job_id, 'failed', {'status': 'failed', 'error': job['error']})
 
 
 def submit_job(kind, payload, timeout):
@@ -503,8 +492,14 @@ def restore_jobs():
         try:
             job = read_json(path)
             if job.get('status') in ('queued', 'running'):
-                job['status'] = 'failed'
-                job['error'] = 'API 服务重启时任务未完成'
+                previous = job.get('status')
+                job['status'] = 'interrupted'
+                job['error'] = {
+                    'code': 'job_interrupted',
+                    'message': 'API 服务重启时任务未完成',
+                    'retryable': True,
+                    'previous_status': previous,
+                }
                 job['finished_at'] = time.time()
                 with JOB_LOCK:
                     JOBS[job['id']] = job
@@ -853,7 +848,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_error(exc.status, meta['code'], str(exc), {'mode': payload.get('execution_mode', 'auto'), **meta})
         except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
             status = 504 if isinstance(exc, subprocess.TimeoutExpired) else 422
-            meta = {'code': 'executor_timeout' if status == 504 else 'request_invalid', 'retryable': status == 504, 'fallback_available': False}
+            code = exc.code if isinstance(exc, TaskValidationError) else ('executor_timeout' if status == 504 else 'request_invalid')
+            meta = {'code': code, 'retryable': status == 504, 'fallback_available': False}
+            if isinstance(exc, TaskValidationError) and exc.field:
+                meta['field'] = exc.field
             return self.send_error(status, meta['code'], str(exc), {'mode': payload.get('execution_mode', 'auto'), **meta})
         except Exception as exc:
             return self.send_error(500, 'internal_error', str(exc))

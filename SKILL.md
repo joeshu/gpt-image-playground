@@ -96,6 +96,7 @@ python3 scripts/skill.py serve --host 127.0.0.1 --port 8765
 - 异步 REST：读取 `job_id`，轮询 `/v1/jobs/{id}`；实时进度消费 `/v1/jobs/{id}/events`。
 - 批量：读取 `batch_id`、`batch_item_id`；部分失败时只重试失败项，关注 `reused`、`retried`、`retry_of`。
 - 错误：读取结构化 `error.code`、`error.message`、`error.details.mode`、`retryable`、`fallback_available`，并检查退出码。
+- 请求进入 REST/Agent 前统一归一化为 `task_schema_version=1`；不要绕过 Schema 直接拼接 Provider 参数。
 
 ### 安全重试
 
@@ -190,6 +191,7 @@ GPT_IMAGE_PLAYGROUND_INPUT_ROOT 额外输入图片白名单目录
 - Provider 返回图片 URL 时统一执行 SSRF 防护：拒绝本机、内网、链路本地和保留地址，逐次校验重定向，并限制响应类型和下载大小。
 - 请求、响应和 SSE 调试文件统一脱敏 Base64 图片、密钥字段及带查询参数的签名 URL。
 - ZIP 恢复先校验并 staging；物理删除图片必须显式请求。
+- SQLite 使用 WAL、10 秒 busy timeout 和版本化 schema；服务重启后将未完成 Job 标记为可重试的 `interrupted`，不要自动重复付费请求。
 - 不要把真实 Key、连接文件、运行时产物或生成图片提交到 Git。
 
 ## 验证与排错

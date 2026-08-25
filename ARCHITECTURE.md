@@ -34,6 +34,11 @@ All Provider image downloads pass through `scripts/security.py`. This boundary
 rejects non-public network targets and unsafe redirects, enforces response size
 and media-type limits, and centralizes artifact redaction.
 
+`scripts/task_schema.py` owns the versioned task boundary shared by REST and
+agent-facing entrypoints. SQLite runs in WAL mode with a busy timeout and a
+schema version record. Persisted queued/running jobs become retryable
+`interrupted` jobs after restart; they are never resubmitted automatically.
+
 ## Model selection
 
 A Profile can specify a model such as `gpt-5.6-sol`. Explicit CLI/task model selection wins over Profile `omit_model`. `omit_model` is only for providers that require the model field to be absent. Specifying both explicitly is rejected.

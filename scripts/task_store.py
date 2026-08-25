@@ -13,12 +13,19 @@ except ImportError:
 WORK = data_root()
 DB = WORK / 'tasks.sqlite3'
 _LEGACY_MIGRATED = False
+SCHEMA_VERSION = 1
 
 
 def connect(path=DB):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(str(path), timeout=10)
     db.row_factory = sqlite3.Row
+    db.execute('PRAGMA busy_timeout=10000')
+    db.execute('PRAGMA foreign_keys=ON')
+    db.execute('PRAGMA journal_mode=WAL')
+    db.execute('PRAGMA synchronous=NORMAL')
+    db.execute('CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.execute('INSERT INTO schema_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ('schema_version', str(SCHEMA_VERSION)))
     db.execute('''CREATE TABLE IF NOT EXISTS tasks (
         task_id TEXT PRIMARY KEY, parent_task_id TEXT, created_at TEXT,
         status TEXT, prompt TEXT, profile TEXT, model TEXT, size TEXT,
@@ -28,6 +35,14 @@ def connect(path=DB):
     db.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
     db.commit()
     return db
+
+
+def database_status(path=DB):
+    with connect(path) as db:
+        journal_mode = db.execute('PRAGMA journal_mode').fetchone()[0]
+        busy_timeout = db.execute('PRAGMA busy_timeout').fetchone()[0]
+        version = db.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()[0]
+    return {'schema_version': int(version), 'journal_mode': journal_mode, 'busy_timeout_ms': busy_timeout}
 
 
 def get(task_id, path=DB):

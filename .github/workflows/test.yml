@@ -29,6 +29,8 @@ jobs:
         run: python tests/test_api.py
       - name: Run download and redaction security tests
         run: python tests/test_security.py
+      - name: Run canonical task schema tests
+        run: python tests/test_task_schema.py
       - name: Run CLI dry-run
         run: python scripts/playground.py --prompt 'ci dry run' --profile default --dry-run
       - name: Run Agent dry-run

@@ -35,6 +35,10 @@ try:
     from runtime_paths import attachments_root, data_root, external_tool_root, skill_root
 except ImportError:
     from scripts.runtime_paths import attachments_root, data_root, external_tool_root, skill_root
+try:
+    from task_schema import normalize_task as normalize_task_schema
+except ImportError:
+    from scripts.task_schema import normalize_task as normalize_task_schema
 
 ROOT = skill_root()
 BASE = ROOT
@@ -395,7 +399,7 @@ def build_task(source, cli, presets, current_id):
     if manifest:
         result['provider_manifest'] = manifest
         result['profile_config'] = profile
-    return result
+    return normalize_task_schema(result, strip_sensitive=False)
 
 
 def should_retry(returncode, stderr):
