@@ -2,7 +2,7 @@
 
 > 图片生成与编辑编排技能：CLI、REST/OpenAPI、Responses Agent、Web 工作台和多种 Provider 的统一入口。
 
-**当前版本：`2.7.8`** · Python-only runtime · 不需要 Node.js/npm
+**当前版本：`3.1.0`** · Python-only runtime · 不需要 Node.js/npm
 
 ## 目录
 

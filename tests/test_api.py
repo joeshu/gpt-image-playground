@@ -18,7 +18,7 @@ def check(condition, message):
 
 
 def main():
-    check(api.VERSION == '2.7.8', 'version')
+    check(api.VERSION == '3.1.0', 'version')
     from pathlib import Path as _Path
     import json as _json
     catalog = _json.loads((ROOT / 'model_catalog.json').read_text())
