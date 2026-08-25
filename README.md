@@ -2,7 +2,7 @@
 
 > 图片生成与编辑编排技能：CLI、REST/OpenAPI、Responses Agent、Web 工作台和多种 Provider 的统一入口。
 
-**当前版本：`2.7.6`** · Python-only runtime · 不需要 Node.js/npm
+**当前版本：`2.7.7`** · Python-only runtime · 不需要 Node.js/npm
 
 ## 目录
 
@@ -456,6 +456,17 @@ git diff --check
 4. commit 并推送 `main`；
 5. 创建并推送版本标签；
 6. 复核远端提交和工作区干净。
+
+## Darwin 质量评估
+
+本技能的 Darwin 测试提示词、基线结果和优化记录见：
+
+```text
+test-prompts.json
+DARWIN_REPORT.md
+```
+
+执行 Darwin 优化时，先运行本 README 的发布门禁；真实 Provider 测试必须单独授权，不能用 Dry Run 冒充真实效果。
 
 ## 许可证与仓库
 

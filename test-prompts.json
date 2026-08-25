@@ -1,0 +1,6 @@
+[
+  {"id":1,"prompt":"帮我生成一张4:5的产品海报：红色咖啡杯，暖色纸张质感，大面积留白，编辑风，低质量即可。先检查当前Profile和Provider配置，不要直接泄露API Key。","expected":"先检查配置，选择合适入口，必要时Dry Run，读取JSON结果且不泄露密钥。"},
+  {"id":2,"prompt":"请用现有图片作为参考图，把窗外背景改成浅蓝色天空，保留主体、眼镜、书本和室内物体。如果使用mask，请确认mask具有Alpha通道。如果当前网关不支持某个编辑参数，请返回明确错误，不要盲目重试。","expected":"校验输入和Alpha mask，Native切换/images/edits，网络错误才重试，Provider拒绝不回退。"},
+  {"id":3,"prompt":"请批量生成三张不同风格的产品海报。如果其中一项失败，只重试失败项，不要重复生成成功项。使用稳定的幂等键，并告诉我如何查看每个子任务的状态。","expected":"使用batch_id和Idempotency-Key，说明父子任务和失败项重试字段。"},
+  {"id":4,"prompt":"请使用gpt-image-2生成透明背景的蓝色玻璃球PNG。先确认当前endpoint和模型的真实能力。如果网关拒绝透明背景，请区分官方模型能力和当前网关能力，不要把错误归类为普通网络故障。","expected":"检查endpoint/model和请求载荷，识别provider_request_rejected，给出切换或降级方案。"}
+]
