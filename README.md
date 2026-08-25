@@ -2,7 +2,7 @@
 
 > 图片生成与编辑编排技能：CLI、REST/OpenAPI、Responses Agent、Web 工作台和多种 Provider 的统一入口。
 
-**当前版本：`2.7.7`** · Python-only runtime · 不需要 Node.js/npm
+**当前版本：`2.7.8`** · Python-only runtime · 不需要 Node.js/npm
 
 ## 目录
 
@@ -444,6 +444,8 @@ python3 -m py_compile scripts/*.py tests/*.py
 python3 tests/test_api.py
 python3 tests/test_providers.py
 python3 tests/test_skill_matrix.py
+# 只有明确授权且确认会消耗额度时才运行：
+python3 tests/test_skill_matrix.py --real --profile default
 python3 scripts/skill.py doctor
 git diff --check
 ```

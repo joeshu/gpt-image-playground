@@ -4,6 +4,7 @@
 This suite intentionally uses dry-run and local fixtures only. It must not
 send requests to a real image Provider.
 """
+import argparse
 import base64, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
@@ -20,12 +21,33 @@ def check(cond, msg):
     if not cond: raise AssertionError(msg)
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--real', action='store_true', help='显式允许真实 Provider 探测；默认不联网')
+    parser.add_argument('--profile', default='default')
+    args = parser.parse_args()
     cases = []
     def case(name, fn):
         fn(); cases.append(name)
 
     case('manifest_check', lambda: check(run(PY, 'scripts/skill.py', 'check')['status'] == 'ready', 'manifest'))
     case('doctor_check', lambda: check(run(PY, 'scripts/skill.py', 'doctor')['status'] == 'ready', 'doctor'))
+    def capability_shape():
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        import api_server as api
+        value = api.capabilities_for('default')
+        check('transparent_background' in value['native'], 'transparent capability')
+        check(value['native']['transparent_background'] in ('unknown', 'available', 'unavailable'), 'capability state')
+        check(value['probe_required'] is True, 'probe gate')
+    case('capability_granularity', capability_shape)
+    if args.real:
+        check(os.environ.get('GPT_IMAGE_API_KEY'), '--real requires GPT_IMAGE_API_KEY')
+        def real_probe():
+            result = run(PY, 'scripts/playground.py', '--profile', args.profile,
+                         '--prompt', 'Darwin capability probe: a simple blue glass sphere on a plain background',
+                         '--execution-mode', 'native', '--quality', 'low', '--n', '1')
+            check(result.get('status') == 'completed', 'real provider probe')
+            check(result.get('saved_images'), 'real provider image')
+        case('real_provider_probe', real_probe)
     case('single_native_dry_run', lambda: check(run(PY, 'scripts/playground.py', '--prompt', 'fixture', '--dry-run', '--execution-mode', 'native')['execution_mode'] == 'native', 'native dry run'))
     case('single_script_dry_run', lambda: check(run(PY, 'scripts/playground.py', '--prompt', 'fixture', '--dry-run', '--execution-mode', 'script')['execution_mode'] == 'script', 'script dry run'))
     case('single_auto_dry_run', lambda: check(run(PY, 'scripts/playground.py', '--prompt', 'fixture', '--dry-run', '--execution-mode', 'auto')['execution_mode'] == 'auto', 'auto dry run'))

@@ -1,6 +1,6 @@
 # GPT Image Playground 测试案例
 
-版本：`2.7.7`
+版本：`2.7.8`
 
 ## 测试原则
 
@@ -16,6 +16,14 @@ python3 tests/test_skill_matrix.py
 python3 scripts/skill.py check
 python3 scripts/skill.py doctor
 ```
+
+显式真实 Provider 探测（会消耗额度，必须用户授权）：
+
+```sh
+python3 tests/test_skill_matrix.py --real --profile default
+```
+
+`--real` 未提供时，测试矩阵绝不联网；真实探测只执行一张低质量图片，并要求 `GPT_IMAGE_API_KEY` 已设置。
 
 ## 场景矩阵
 

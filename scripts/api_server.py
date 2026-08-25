@@ -75,12 +75,39 @@ def capabilities_for(profile_id='default'):
     api_mode = profile.get('api_mode', 'images')
     native_available = api_mode in ('images', 'auto') and provider in ('openai', 'openai-compatible', None)
     script_available = (ROOT / 'scripts' / 'generate.py').is_file()
+    # Protocol compatibility does not prove every upstream feature is available.
+    # Keep provider-sensitive capabilities explicit instead of overclaiming True.
+    native_state = 'available' if native_available else 'unavailable'
+    script_state = 'available' if script_available else 'unavailable'
     return {
-        'profile': profile_id, 'execution_modes': ['auto', 'native', 'script'],
+        'profile': profile_id,
+        'provider': provider,
+        'api_mode': api_mode,
+        'model': profile.get('model') or None,
+        'execution_modes': ['auto', 'native', 'script'],
         'default_execution_mode': profile.get('execution_mode', 'auto'),
-        'native': {'generate': native_available, 'edit': native_available, 'batch': native_available, 'stream': native_available},
-        'script': {'generate': script_available, 'edit': script_available, 'batch': script_available, 'stream': False},
+        'native': {
+            'generate': native_state,
+            'edit': native_state,
+            'batch': native_state,
+            'stream': 'unknown' if native_available else 'unavailable',
+            'reference_images': 'unknown' if native_available else 'unavailable',
+            'mask_alpha': 'unknown' if native_available else 'unavailable',
+            'transparent_background': 'unknown' if native_available else 'unavailable',
+            'formats': ['png', 'jpeg'] if native_available else [],
+        },
+        'script': {
+            'generate': script_state,
+            'edit': script_state,
+            'batch': script_state,
+            'stream': 'unavailable',
+            'reference_images': script_state,
+            'mask_alpha': script_state,
+            'transparent_background': 'unknown' if script_available else 'unavailable',
+            'formats': ['png', 'jpeg'] if script_available else [],
+        },
         'fallback': {'native_to_script': native_available and script_available},
+        'probe_required': native_available,
     }
 
 
@@ -611,7 +638,7 @@ OPENAPI = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'GPTImagePlaygroundAPI/2.7.7'
+    server_version = 'GPTImagePlaygroundAPI/2.7.8'
 
     def log_message(self, fmt, *args):
         sys.stderr.write('[playground-api] ' + (fmt % args) + '\n')
