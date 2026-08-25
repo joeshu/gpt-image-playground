@@ -12,7 +12,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install runtime dependencies
-        run: python -m pip install --disable-pip-version-check requests
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pyyaml
+      - name: Validate skill manifest
+        run: python tests/test_skill_manifest.py
       - name: Compile Python files
         run: python -m compileall -q scripts tests
       - name: Run API and connection tests

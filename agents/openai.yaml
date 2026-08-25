@@ -1,0 +1,4 @@
+interface:
+  display_name: "GPT Image Playground"
+  short_description: "编排图片生成、编辑、批量任务与多 Provider 调用"
+  default_prompt: "使用 $gpt-image-playground 安全规划并执行一次图片生成或编辑任务。"

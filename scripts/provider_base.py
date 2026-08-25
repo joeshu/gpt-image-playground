@@ -14,6 +14,11 @@ import time
 import urllib.request
 import urllib.error
 
+try:
+    from version import VERSION
+except ImportError:
+    from scripts.version import VERSION
+
 
 class ProviderError(RuntimeError):
     def __init__(self, message, *, provider=None, code='provider_error', returncode=None):
@@ -81,6 +86,10 @@ def _multipart_value(value):
         mime = header[5:].split(';', 1)[0] or 'application/octet-stream'
         return base64.b64decode(encoded), mime
     if isinstance(value, str) and value.startswith(('http://', 'https://')):
+        if os.environ.get('GPT_IMAGE_ALLOW_REMOTE_INPUTS') != '1':
+            raise ProviderError(
+                '默认拒绝远程图片 URL；下载到允许目录，或在信任来源时设置 GPT_IMAGE_ALLOW_REMOTE_INPUTS=1',
+                provider='images-native', code='remote_input_denied')
         with urllib.request.urlopen(value, timeout=300) as response:
             return response.read(), response.headers.get_content_type() or 'application/octet-stream'
     path = Path(value)
@@ -130,7 +139,7 @@ def _multipart_request(url, api_key, fields, files, timeout):
     for field, filename, content, mime in files:
         chunks.extend([f'--{boundary}\r\n'.encode(), f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'.encode(), f'Content-Type: {mime}\r\n\r\n'.encode(), content, b'\r\n'])
     chunks.append(f'--{boundary}--\r\n'.encode())
-    request = urllib.request.Request(url, data=b''.join(chunks), method='POST', headers={'Authorization': f'Bearer {api_key}', 'Content-Type': f'multipart/form-data; boundary={boundary}', 'Accept': 'application/json', 'Connection': 'close', 'User-Agent': 'gpt-image-playground/2.7.1'})
+    request = urllib.request.Request(url, data=b''.join(chunks), method='POST', headers={'Authorization': f'Bearer {api_key}', 'Content-Type': f'multipart/form-data; boundary={boundary}', 'Accept': 'application/json', 'Connection': 'close', 'User-Agent': f'gpt-image-playground/{VERSION}'})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read()
@@ -211,7 +220,15 @@ class NativeImagesProvider(Provider):
         request_endpoint = endpoint
         if is_edit and request_endpoint.rstrip('/').endswith('/images/generations'):
             request_endpoint = request_endpoint.rstrip('/')[:-len('generations')] + 'edits'
-        request_path.write_text(json.dumps({**payload, 'endpoint': request_endpoint, 'mode': 'native', 'request_type': 'multipart' if is_edit else 'json'}, ensure_ascii=False, indent=2))
+        artifact_payload = dict(payload)
+        if artifact_payload.get('image_urls'):
+            artifact_payload['image_urls'] = [
+                '[data-url-redacted]' if str(value).startswith('data:') else str(value)
+                for value in artifact_payload['image_urls']
+            ]
+        if artifact_payload.get('mask'):
+            artifact_payload['mask'] = '[data-url-redacted]' if str(artifact_payload['mask']).startswith('data:') else str(artifact_payload['mask'])
+        request_path.write_text(json.dumps({**artifact_payload, 'endpoint': request_endpoint, 'mode': 'native', 'request_type': 'multipart' if is_edit else 'json'}, ensure_ascii=False, indent=2))
         if context.dry_run:
 
             return json.dumps({'status': 'dry_run', 'task_id': context.task_id, 'endpoint': endpoint,

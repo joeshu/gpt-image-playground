@@ -1,6 +1,5 @@
 ---
 name: gpt-image-playground
-version: 2.7.8
 description: "图片生成与编辑编排技能：支持文生图、参考图、遮罩、批量任务、Native/Script/Auto 双执行模式、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job 和 SSE。当用户要求生成、编辑、批量处理图片，或需要配置图片 Provider、调用 Agent/API、排查生成失败时使用。"
 ---
 
@@ -16,6 +15,8 @@ python3 scripts/skill.py check
 python3 scripts/skill.py doctor
 python3 scripts/playground.py --validate-profiles
 ```
+
+从 `python3 scripts/skill.py check` 的 JSON 输出读取版本；不要依赖 frontmatter 维护版本号。
 
 不确定参数或首次接入时，先用 `--dry-run`；不要在没有用户授权时调用真实 Provider。
 
@@ -121,7 +122,7 @@ Idempotency-Key: poster-2027-001
 - **不要**把 `provider_request_rejected` 当作网络故障重试或 Auto 回退。
 - **不要**在未授权时执行真实生图、批量、高质量或多张请求。
 - **不要**把 API Key 放进提示词、任务 JSON、URL、Git、浏览器 localStorage 或回复文本。
-- **不要**把远程图片 URL、未验证的本地路径或无 Alpha mask 直接提交。
+- **不要**把远程图片 URL、未验证的本地路径或无 Alpha mask 直接提交。CLI 默认拒绝远程输入；只有在信任来源且明确设置 `GPT_IMAGE_ALLOW_REMOTE_INPUTS=1` 时才允许下载。
 - **不要**重复提交没有 `Idempotency-Key`/`request_id` 的可重试 REST 请求。
 - **不要**在没有确认 Job 终态前重复提交异步任务。
 - **不要**用成功的普通生成结果推断透明背景或编辑能力已经可用。

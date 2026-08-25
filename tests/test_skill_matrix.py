@@ -81,6 +81,7 @@ def main():
             request = json.loads(Path(result['request_file']).read_text())
             check(request['request_type'] == 'multipart', 'multipart route')
             check(request['endpoint'].endswith('/images/edits'), 'edit endpoint')
+            check('UE5H' not in json.dumps(request) and 'TUFTSw==' not in json.dumps(request), 'request artifact redaction')
     case('native_edit_mask_dry_run', provider_dry_run)
 
     def idempotency():
