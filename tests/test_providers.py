@@ -21,6 +21,7 @@ def main():
     assert registry.resolve({'provider': 'openai-compatible'}).name == 'images-native'
     assert '--dry-run' in registry.resolve({'provider': 'openai-compatible', 'execution_mode': 'script'}).command(context)
     import custom_provider
+    import provider_base as pb
     assert custom_provider.retryable_poll_status(429)
     assert custom_provider.retryable_poll_status(503)
     assert not custom_provider.retryable_poll_status(400)
@@ -29,8 +30,27 @@ def main():
     assert ProviderError('x', code='missing_endpoint').code == 'missing_endpoint'
     assert _retryable_network_error(ProviderError('Native multipart 请求失败: EOF occurred in violation of protocol', code='native_request_failed'))
     assert not _retryable_network_error(ProviderError('HTTP 400 from image endpoint: invalid_value', code='provider_request_rejected'))
+    try:
+        pb._multipart_value('https://example.test/input.png')
+    except ProviderError as exc:
+        assert exc.code == 'remote_input_denied'
+    else:
+        raise AssertionError('remote image URL must be denied by default')
 
-    import provider_base as pb
+    import generate
+    class JSONFixture(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get('Content-Length', '0'))
+            received = json.loads(self.rfile.read(length).decode())
+            payload = json.dumps({'ok': True, 'received': received}).encode()
+            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(payload))); self.end_headers(); self.wfile.write(payload)
+        def log_message(self, *_): return
+    json_fixture = ThreadingHTTPServer(('127.0.0.1', 0), JSONFixture)
+    json_thread = threading.Thread(target=json_fixture.serve_forever, daemon=True); json_thread.start()
+    value = generate.request_json('POST', f'http://127.0.0.1:{json_fixture.server_port}/images', {'Content-Type': 'application/json'}, {'prompt': 'fixture'}, timeout=5)
+    assert value == {'ok': True, 'received': {'prompt': 'fixture'}}
+    json_fixture.shutdown(); json_fixture.server_close(); json_thread.join(timeout=2)
+
     with tempfile.TemporaryDirectory() as temp:
         temp = Path(temp); source = temp / 'source.png'; mask = temp / 'mask.png'
         (temp / 'out').mkdir(); (temp / 'work').mkdir()
@@ -50,6 +70,12 @@ def main():
         assert [item[0] for item in captured['files']] == ['image[]', 'mask']
         assert captured['fields']['prompt'] == 'edit'
         assert result['saved_images']
+
+        dry_context = ProviderContext(task={'prompt': 'edit', 'endpoint': 'https://example.test/v1/images/generations', 'images': ['data:image/png;base64,U0VDUkVU'], 'mask': 'data:image/png;base64,TUFTSw=='}, task_path=temp / 'task.json', output_dir=temp / 'out', workspace_dir=temp / 'work', dry_run=True, task_id='redacted')
+        dry_result = json.loads(registry.native_images.run(dry_context, {}))
+        artifact = Path(dry_result['request_file']).read_text(encoding='utf-8')
+        assert 'U0VDUkVU' not in artifact and 'TUFTSw==' not in artifact
+        assert artifact.count('[data-url-redacted:') == 2
 
     class NativeFixture:
         name = 'images-native-fixture'

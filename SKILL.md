@@ -1,6 +1,5 @@
 ---
 name: gpt-image-playground
-version: 3.1.0
 description: "图片生成与编辑编排技能：支持文生图、参考图、遮罩、批量任务、Native/Script/Auto 双执行模式、OpenAI Images/Responses、fal.ai、自定义 Provider、Responses Agent、REST/OpenAPI、异步 Job 和 SSE。当用户要求生成、编辑、批量处理图片，或需要配置图片 Provider、调用 Agent/API、排查生成失败时使用。"
 ---
 
@@ -14,8 +13,11 @@ description: "图片生成与编辑编排技能：支持文生图、参考图、
 cd /path/to/gpt-image-playground
 python3 scripts/skill.py check
 python3 scripts/skill.py doctor
+python3 scripts/skill.py manifest
 python3 scripts/playground.py --validate-profiles
 ```
+
+从 `python3 scripts/skill.py check` 的 JSON 输出读取版本；不要依赖 frontmatter 维护版本号。
 
 不确定参数或首次接入时，先用 `--dry-run`；不要在没有用户授权时调用真实 Provider。
 
@@ -63,7 +65,7 @@ Transparent background is not supported for this model.
 
 若当前网关不支持透明背景：改用 `background=opaque/auto`，或切换到确认支持该能力的 endpoint；本地抠图只能作为非等价降级方案。
 
-不要把本技能当作前端构建项目：运行时 Web 使用原生 HTML/CSS/JavaScript，不需要 Node.js/npm。
+不要把本技能当作前端构建项目：运行时 Web 使用原生 HTML/CSS/JavaScript，不需要 Node.js/npm。核心 Images、Responses、fal.ai、Agent、REST 和 Web 路径只依赖 Python 3.9+ 标准库；`requests` 仅用于可选的声明式 Custom Provider。
 
 ## 入口选择
 
@@ -74,6 +76,8 @@ Transparent background is not supported for this model.
 | 统一 Agent/CLI 调用 | `python3 scripts/skill.py generate/agent` |
 | 给其他程序提供 API | `python3 scripts/api_server.py` |
 | 人工操作、历史和画廊 | `python3 scripts/skill.py serve` 后打开 Web |
+
+其他 AI Agent 首次接入时先运行 `python3 scripts/skill.py manifest`，直接读取机器可解析的入口、依赖和输出协议，不要猜测运行命令。
 
 通用入口示例：
 
@@ -92,6 +96,7 @@ python3 scripts/skill.py serve --host 127.0.0.1 --port 8765
 - 异步 REST：读取 `job_id`，轮询 `/v1/jobs/{id}`；实时进度消费 `/v1/jobs/{id}/events`。
 - 批量：读取 `batch_id`、`batch_item_id`；部分失败时只重试失败项，关注 `reused`、`retried`、`retry_of`。
 - 错误：读取结构化 `error.code`、`error.message`、`error.details.mode`、`retryable`、`fallback_available`，并检查退出码。
+- 请求进入 REST/Agent 前统一归一化为 `task_schema_version=1`；不要绕过 Schema 直接拼接 Provider 参数。
 
 ### 安全重试
 
@@ -121,7 +126,7 @@ Idempotency-Key: poster-2027-001
 - **不要**把 `provider_request_rejected` 当作网络故障重试或 Auto 回退。
 - **不要**在未授权时执行真实生图、批量、高质量或多张请求。
 - **不要**把 API Key 放进提示词、任务 JSON、URL、Git、浏览器 localStorage 或回复文本。
-- **不要**把远程图片 URL、未验证的本地路径或无 Alpha mask 直接提交。
+- **不要**把远程图片 URL、未验证的本地路径或无 Alpha mask 直接提交。CLI 默认拒绝远程输入；只有在信任来源且明确设置 `GPT_IMAGE_ALLOW_REMOTE_INPUTS=1` 时才允许下载。
 - **不要**重复提交没有 `Idempotency-Key`/`request_id` 的可重试 REST 请求。
 - **不要**在没有确认 Job 终态前重复提交异步任务。
 - **不要**用成功的普通生成结果推断透明背景或编辑能力已经可用。
@@ -183,7 +188,10 @@ GPT_IMAGE_PLAYGROUND_INPUT_ROOT 额外输入图片白名单目录
 
 - Key 只来自环境变量或本地 `600` 权限连接文件；不写入任务、历史、日志、响应或浏览器存储。
 - REST 默认拒绝远程图片 URL；本地图片必须位于允许目录。
+- Provider 返回图片 URL 时统一执行 SSRF 防护：拒绝本机、内网、链路本地和保留地址，逐次校验重定向，并限制响应类型和下载大小。
+- 请求、响应和 SSE 调试文件统一脱敏 Base64 图片、密钥字段及带查询参数的签名 URL。
 - ZIP 恢复先校验并 staging；物理删除图片必须显式请求。
+- SQLite 使用 WAL、10 秒 busy timeout 和版本化 schema；服务重启后将未完成 Job 标记为可重试的 `interrupted`，不要自动重复付费请求。
 - 不要把真实 Key、连接文件、运行时产物或生成图片提交到 Git。
 
 ## 验证与排错

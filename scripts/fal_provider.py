@@ -3,6 +3,11 @@
 import argparse, base64, json, mimetypes, os, time, urllib.request
 from pathlib import Path
 
+try:
+    from security import fetch_image, display_url, redact
+except ImportError:
+    from scripts.security import fetch_image, display_url, redact
+
 def read_json(p): return json.loads(Path(p).read_text(encoding='utf-8'))
 def image_value(v):
     if str(v).startswith(('data:','http://','https://')): return v
@@ -28,7 +33,7 @@ def main():
     body={'prompt':task['prompt'],'image_size':task.get('size','square'),'num_images':task.get('n',1)}
     if task.get('images'): body['image_urls']=[image_value(x) for x in task['images']]
     if task.get('quality'): body['quality']=task['quality']
-    reqpath=Path(args.workspace_dir)/f'{args.out_prefix}-fal-request.json'; reqpath.parent.mkdir(parents=True,exist_ok=True); reqpath.write_text(json.dumps({'endpoint':submit,'model':model,'body':body,'api_key_source':task.get('api_key_env','FAL_KEY')},ensure_ascii=False,indent=2),encoding='utf-8')
+    reqpath=Path(args.workspace_dir)/f'{args.out_prefix}-fal-request.json'; reqpath.parent.mkdir(parents=True,exist_ok=True); reqpath.write_text(json.dumps({'endpoint':display_url(submit),'model':model,'body':redact(body),'api_key_source':task.get('api_key_env','FAL_KEY')},ensure_ascii=False,indent=2),encoding='utf-8')
     if args.dry_run: print(json.dumps({'status':'dry_run','provider':'fal','endpoint':submit,'model':model,'request_file':str(reqpath)},ensure_ascii=False)); return
     if not key: raise ValueError('缺少 FAL_KEY')
     accepted=call(submit,key,'POST',body); rid=accepted.get('request_id') or accepted.get('id')
@@ -43,8 +48,8 @@ def main():
     result=call(result_url,key); outdir=Path(args.attachments_dir);outdir.mkdir(parents=True,exist_ok=True); saved=[]
     for i,url in enumerate(urls(result),1):
         p=outdir/f'{args.out_prefix}-{i}.png'
-        with urllib.request.urlopen(url,timeout=300) as r:p.write_bytes(r.read())
-        saved.append({'index':i,'path':str(p),'source':'fal','url':url})
-    response=Path(args.workspace_dir)/f'{args.out_prefix}-fal-response.json';response.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+        raw, _ = fetch_image(url, timeout=300); p.write_bytes(raw)
+        saved.append({'index':i,'path':str(p),'source':'fal','url':display_url(url)})
+    response=Path(args.workspace_dir)/f'{args.out_prefix}-fal-response.json';response.write_text(json.dumps(redact(result),ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'status':'completed','provider':'fal','model':model,'request_id':rid,'actual_params':body,'saved_images':saved,'response_file':str(response)},ensure_ascii=False,indent=2))
 if __name__=='__main__':main()

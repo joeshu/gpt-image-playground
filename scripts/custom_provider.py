@@ -17,6 +17,11 @@ import urllib.request
 from pathlib import Path
 
 try:
+    from security import fetch_image, display_url, redact
+except ImportError:
+    from scripts.security import fetch_image, display_url, redact
+
+try:
     import requests
 except Exception:
     print('requests is required. Install with: apk add py3-requests', file=sys.stderr)
@@ -113,9 +118,7 @@ def data_bytes(value):
         body = match.group(3)
         raw = base64.b64decode(body) if match.group(2) else urllib.parse.unquote_to_bytes(body)
         return raw, mime
-    response = requests.get(value, timeout=120)
-    response.raise_for_status()
-    return response.content, response.headers.get('content-type', 'application/octet-stream').split(';')[0]
+    return fetch_image(value, timeout=120)
 
 
 def render(value, context):
@@ -152,11 +155,7 @@ def join_url(base, path):
 
 
 def safe_summary(value):
-    if isinstance(value, dict): return {k: safe_summary(v) for k, v in value.items()}
-    if isinstance(value, list): return [safe_summary(v) for v in value]
-    if isinstance(value, str) and value.startswith('data:'):
-        return f'[data URL omitted: {len(value)} chars]'
-    return value
+    return redact(value)
 
 
 def endpoint_and_headers(task):
@@ -205,12 +204,11 @@ def extract_images(payload, mapping, output_dir, prefix, headers):
             if value.startswith('data:'):
                 raw, mime = data_bytes(value)
             else:
-                response = requests.get(value, headers=headers, timeout=120); response.raise_for_status()
-                raw, mime = response.content, response.headers.get('content-type', 'image/png').split(';')[0]
+                raw, mime = fetch_image(value, headers=headers, timeout=120)
             ext = 'jpg' if mime in ('image/jpeg', 'image/jpg') else (mime.split('/')[-1] if '/' in mime else 'png')
             target = Path(output_dir) / f'{prefix}-{len(outputs)+1}.{ext}'
             target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(raw)
-            outputs.append({'index': len(outputs)+1, 'path': str(target), 'source': 'url', 'url': value})
+            outputs.append({'index': len(outputs)+1, 'path': str(target), 'source': 'url', 'url': display_url(value)})
     return outputs
 
 
@@ -267,7 +265,7 @@ def main():
         print(json.dumps({'request_file': str(request_path), 'endpoint': url, 'model': task.get('model'), 'size': task.get('size')}, ensure_ascii=False, indent=2)); return
     files = build_files(submit.get('files'), context) if submit.get('contentType') == 'multipart' else None
     payload, meta, raw_text = request(submit.get('method', 'POST'), url, headers, query, body, files)
-    write_json(initial_path, payload)
+    write_json(initial_path, safe_summary(payload))
     write_json(work / f'{prefix}-post-meta.json', meta)
     (work / f'{prefix}-post-raw.txt').write_text(raw_text, encoding='utf-8')
     final = payload; async_note = None
@@ -302,7 +300,7 @@ def main():
         else:
             raise RuntimeError(f'异步任务轮询超时: {task_id_value}')
         write_json(work / f'{prefix}-poll-events.json', poll_events)
-    write_json(response_path, final)
+    write_json(response_path, safe_summary(final))
     result_mapping = poll.get('result') if (poll and task_id_value is not None) else submit.get('result')
     saved = extract_images(final, result_mapping, out, prefix, headers)
     if not saved and not async_note:

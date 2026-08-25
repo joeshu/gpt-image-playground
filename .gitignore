@@ -13,6 +13,7 @@ __pycache__/
 /history.jsonl
 /agent-history.jsonl
 /api/
+/.monkeycode/runtime/
 
 # Local test exports
 profiles.export.test.json

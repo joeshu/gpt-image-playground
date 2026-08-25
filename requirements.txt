@@ -1,1 +1,3 @@
+# Core Images, Responses, fal, REST and Web paths use Python's standard library.
+# Install this optional dependency only for declarative custom Provider support.
 requests>=2.31,<3

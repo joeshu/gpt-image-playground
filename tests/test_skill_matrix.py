@@ -31,6 +31,12 @@ def main():
 
     case('manifest_check', lambda: check(run(PY, 'scripts/skill.py', 'check')['status'] == 'ready', 'manifest'))
     case('doctor_check', lambda: check(run(PY, 'scripts/skill.py', 'doctor')['status'] == 'ready', 'doctor'))
+    def manifest_contract():
+        value = run(PY, 'scripts/skill.py', 'manifest')
+        check(value['runtime']['required_packages'] == [], 'zero-dependency core')
+        check(value['web']['build_command'] is None, 'zero-build web')
+        check(value['contracts']['stdout'] == 'json', 'machine-readable output')
+    case('agent_manifest_contract', manifest_contract)
     def capability_shape():
         sys.path.insert(0, str(ROOT / 'scripts'))
         import api_server as api
@@ -81,6 +87,7 @@ def main():
             request = json.loads(Path(result['request_file']).read_text())
             check(request['request_type'] == 'multipart', 'multipart route')
             check(request['endpoint'].endswith('/images/edits'), 'edit endpoint')
+            check('UE5H' not in json.dumps(request) and 'TUFTSw==' not in json.dumps(request), 'request artifact redaction')
     case('native_edit_mask_dry_run', provider_dry_run)
 
     def idempotency():
@@ -102,6 +109,23 @@ def main():
         check('AAAA' not in text and 'data:image' not in text, 'data URL redaction')
         check('api_key' not in api.normalize_task({'prompt':'x','api_key':'secret'}), 'task key removal')
     case('secret_and_data_url_redaction', redaction)
+
+    def runtime_package():
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / 'runtime.zip'
+            run(PY, 'scripts/package_runtime.py', str(target))
+            import zipfile
+            with zipfile.ZipFile(target) as archive:
+                names = set(archive.namelist())
+            required = {
+                'gpt-image-playground/SKILL.md',
+                'gpt-image-playground/AGENTS.md',
+                'gpt-image-playground/profiles.json',
+                'gpt-image-playground/agents/openai.yaml',
+                'gpt-image-playground/web/index.html',
+            }
+            check(required <= names, 'portable runtime contents')
+    case('portable_runtime_package', runtime_package)
 
     print(json.dumps({'status':'ok','cases':len(cases),'passed':cases}, ensure_ascii=False, indent=2))
 

@@ -6,18 +6,34 @@ on:
 jobs:
   python:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.11', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
+      - name: Zero-dependency core smoke test
+        run: |
+          python scripts/skill.py manifest
+          python scripts/skill.py check
+          python scripts/playground.py --prompt 'ci zero dependency' --execution-mode script --dry-run
       - name: Install runtime dependencies
-        run: python -m pip install --disable-pip-version-check requests
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pyyaml
+      - name: Validate skill manifest
+        run: python tests/test_skill_manifest.py
       - name: Compile Python files
         run: python -m compileall -q scripts tests
       - name: Run API and connection tests
         run: python tests/test_api.py
+      - name: Run download and redaction security tests
+        run: python tests/test_security.py
+      - name: Run canonical task schema tests
+        run: python tests/test_task_schema.py
       - name: Run CLI dry-run
         run: python scripts/playground.py --prompt 'ci dry run' --profile default --dry-run
       - name: Run Agent dry-run
         run: python scripts/agent.py --prompt 'ci agent dry run' --profile default --dry-run
+      - name: Run portable skill matrix
+        run: python tests/test_skill_matrix.py
