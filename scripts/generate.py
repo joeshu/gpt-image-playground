@@ -12,6 +12,11 @@ import urllib.error
 from pathlib import Path
 from typing import Optional
 
+try:
+    from security import fetch_image, display_url, redact
+except ImportError:
+    from scripts.security import fetch_image, display_url, redact
+
 # Endpoint and API key are read from environment variables when available.
 # This keeps provider-specific URLs and secrets out of task/config files.
 ENDPOINT_DEFAULT = "https://twofishai.com/v1/images/generations"
@@ -143,9 +148,8 @@ def normalize_image_inputs(values):
 
 
 def save_url_image(url: str, out_path: Path, headers=None):
-    req = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        out_path.write_bytes(resp.read())
+    raw, _ = fetch_image(url, headers=headers, timeout=300)
+    out_path.write_bytes(raw)
 
 
 def response_items(resp_json):
@@ -188,7 +192,7 @@ def decode_b64_images(resp_json, out_dir: Path, prefix: str, output_format="png"
                 "index": i,
                 "path": str(out_path),
                 "source": "url",
-                "url": url,
+                "url": display_url(url),
                 "revised_prompt": item.get("revised_prompt")
             })
     return saved
@@ -392,7 +396,7 @@ def main():
     initial_response_path = workspace_dir / f"{prefix}-initial-response.json"
     response_path = workspace_dir / f"{prefix}-response.json"
     summary_path = workspace_dir / f"{prefix}-summary.json"
-    write_json(request_path, {**payload, "endpoint": endpoint, "api_key_source": API_KEY_ENV if os.environ.get(API_KEY_ENV) else LEGACY_API_KEY_ENV, "timeouts": {"connect": CONNECT_TIMEOUT_DEFAULT, "read": REQUEST_TIMEOUT_DEFAULT}})
+    write_json(request_path, {**redact(payload), "endpoint": display_url(endpoint), "api_key_source": API_KEY_ENV if os.environ.get(API_KEY_ENV) else LEGACY_API_KEY_ENV, "timeouts": {"connect": CONNECT_TIMEOUT_DEFAULT, "read": REQUEST_TIMEOUT_DEFAULT}})
     if args.dry_run:
         print(json.dumps({"request_file": str(request_path), "endpoint": endpoint, "model": model, "omit_model": omit_model, "size": size}, ensure_ascii=False, indent=2))
         return
@@ -406,7 +410,7 @@ def main():
             timeout=REQUEST_TIMEOUT_DEFAULT,
             debug_prefix=workspace_dir / f"{prefix}-post"
         )
-        write_json(initial_response_path, resp_json)
+        write_json(initial_response_path, redact(resp_json))
     except Exception as e:
         err = {"error": str(e), "endpoint": endpoint, "model": model, "size": size,
                "payload_preview": {k: v for k, v in payload.items() if k != "image_urls"}}
@@ -417,7 +421,7 @@ def main():
     final_json, async_note = maybe_poll(resp_json, endpoint, headers, args.poll_interval, args.poll_timeout, workspace_dir, prefix)
     if final_json is None:
         final_json = resp_json
-    write_json(response_path, final_json)
+    write_json(response_path, redact(final_json))
     saved_images = decode_b64_images(final_json, attachments_dir, prefix, payload.get("output_format", "png"))
 
     summary = {

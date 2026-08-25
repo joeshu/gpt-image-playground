@@ -75,7 +75,7 @@ def main():
         dry_result = json.loads(registry.native_images.run(dry_context, {}))
         artifact = Path(dry_result['request_file']).read_text(encoding='utf-8')
         assert 'U0VDUkVU' not in artifact and 'TUFTSw==' not in artifact
-        assert artifact.count('[data-url-redacted]') == 2
+        assert artifact.count('[data-url-redacted:') == 2
 
     class NativeFixture:
         name = 'images-native-fixture'

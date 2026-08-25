@@ -3,6 +3,11 @@
 import argparse, base64, json, mimetypes, os, urllib.error, urllib.request
 from pathlib import Path
 
+try:
+    from security import fetch_image, redact
+except ImportError:
+    from scripts.security import fetch_image, redact
+
 
 def read_json(path): return json.loads(Path(path).read_text(encoding='utf-8'))
 def data_url(path):
@@ -75,7 +80,7 @@ def request_stream(url, key, body, timeout, events_path, partial_dir, prefix, ou
             except json.JSONDecodeError:
                 continue
             apply_stream_event(state, event, partial_dir, prefix, output_format)
-            stream.write(json.dumps(event, ensure_ascii=False) + '\n')
+            stream.write(json.dumps(redact(event), ensure_ascii=False) + '\n')
             stream.flush()
     state.pop('events', None)
     return state
@@ -99,7 +104,7 @@ def save_outputs(value,outdir,prefix,fmt):
         p=outdir/f'{prefix}-{i}.{"jpg" if fmt in ("jpg","jpeg") else fmt}'
         if b64: p.write_bytes(base64.b64decode(b64))
         elif url:
-            with urllib.request.urlopen(url,timeout=300) as r: p.write_bytes(r.read())
+            raw, _ = fetch_image(url, timeout=300); p.write_bytes(raw)
         else: continue
         saved.append({'index':i,'path':str(p),'source':'responses','revised_prompt':item.get('revised_prompt')})
     return saved
@@ -123,7 +128,7 @@ def main():
     streaming = bool(task.get('stream'))
     if streaming:
         body['stream'] = True
-    request_path=Path(args.workspace_dir)/f'{args.out_prefix}-responses-request.json'; request_path.parent.mkdir(parents=True,exist_ok=True); request_path.write_text(json.dumps({**body,'api_key_source':task.get('api_key_env','GPT_IMAGE_API_KEY')},ensure_ascii=False,indent=2),encoding='utf-8')
+    request_path=Path(args.workspace_dir)/f'{args.out_prefix}-responses-request.json'; request_path.parent.mkdir(parents=True,exist_ok=True); request_path.write_text(json.dumps({**redact(body),'api_key_source':task.get('api_key_env','GPT_IMAGE_API_KEY')},ensure_ascii=False,indent=2),encoding='utf-8')
     if args.dry_run: print(json.dumps({'status':'dry_run','endpoint':endpoint,'model':body['model'],'request_file':str(request_path)},ensure_ascii=False)); return
     outdir=Path(args.attachments_dir); outdir.mkdir(parents=True,exist_ok=True)
     workspace=Path(args.workspace_dir)
@@ -131,7 +136,7 @@ def main():
     partial_dir=outdir/f'{args.out_prefix}-partial'
     result=request_stream(endpoint,key,body,args.timeout,events_path,partial_dir,args.out_prefix,task.get('output_format','png')) if streaming else request(endpoint,key,body,args.timeout)
     saved=save_outputs(result,outdir,args.out_prefix,task.get('output_format','png'))
-    response_path=Path(args.workspace_dir)/f'{args.out_prefix}-responses.json'; response_path.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+    response_path=Path(args.workspace_dir)/f'{args.out_prefix}-responses.json'; response_path.write_text(json.dumps(redact(result),ensure_ascii=False,indent=2),encoding='utf-8')
     output={'status':'completed','provider':'responses','endpoint':endpoint,'model':body['model'],'actual_params':body['tools'][0],'saved_images':saved,'response_file':str(response_path)}
     if streaming:
         output.update({'stream': True, 'events_file': str(events_path), 'partial_images': result.get('partial_images', []), 'text': result.get('text', '')})

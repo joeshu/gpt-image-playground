@@ -2,7 +2,7 @@
 
 > 图片生成与编辑编排技能：CLI、REST/OpenAPI、Responses Agent、Web 工作台和多种 Provider 的统一入口。
 
-**当前版本：`2.9.0`** · 零构建 Web · 核心运行时仅需 Python 3.9+
+**当前版本：`3.0.0`** · 零构建 Web · 核心运行时仅需 Python 3.9+
 
 ## 目录
 
@@ -76,6 +76,8 @@ python3 scripts/playground.py --validate-profiles
 ```
 
 `manifest` 输出机器可读的入口、依赖、Web 构建方式和 JSON stdout 契约，适合 Codex、Claude Code、Gemini CLI、本地 Agent 或普通自动化脚本快速接入。Web 直接从 `web/index.html` 提供，不需要 Node.js、npm 或前端构建器。
+
+所有 Provider 的远程图片下载共用安全入口：拒绝本机、内网、链路本地和保留地址，重新验证每次跳转，限制 Content-Type 与下载大小。请求、响应和 SSE 调试文件会脱敏内嵌图片、密钥字段及签名 URL 查询参数。
 
 ### 2. 配置连接
 

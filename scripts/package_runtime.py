@@ -6,7 +6,7 @@ import shutil, sys, tempfile, zipfile
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / 'dist' / 'gpt-image-playground-runtime.zip'
 KEEP_ROOT = ('SKILL.md', 'AGENTS.md', 'README.md', 'ARCHITECTURE.md', 'requirements.txt', 'profiles.json', 'model_catalog.json', 'presets.json', 'connection.example.json')
-KEEP_SCRIPTS = ('agent.py', 'api_server.py', 'connection.py', 'custom_provider.py', 'fal_provider.py', 'generate.py', 'image_ops.py', 'image_store.py', 'playground.py', 'provider_base.py', 'responses_provider.py', 'runtime_paths.py', 'skill.py', 'task_store.py', 'version.py')
+KEEP_SCRIPTS = ('agent.py', 'api_server.py', 'connection.py', 'custom_provider.py', 'fal_provider.py', 'generate.py', 'image_ops.py', 'image_store.py', 'playground.py', 'provider_base.py', 'responses_provider.py', 'runtime_paths.py', 'security.py', 'skill.py', 'task_store.py', 'version.py')
 
 def main():
     out = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else DEFAULT_OUT

@@ -27,6 +27,8 @@ jobs:
         run: python -m compileall -q scripts tests
       - name: Run API and connection tests
         run: python tests/test_api.py
+      - name: Run download and redaction security tests
+        run: python tests/test_security.py
       - name: Run CLI dry-run
         run: python scripts/playground.py --prompt 'ci dry run' --profile default --dry-run
       - name: Run Agent dry-run

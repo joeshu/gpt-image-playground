@@ -15,6 +15,11 @@ import urllib.request
 import urllib.error
 
 try:
+    from security import fetch_image, redact
+except ImportError:
+    from scripts.security import fetch_image, redact
+
+try:
     from version import VERSION
 except ImportError:
     from scripts.version import VERSION
@@ -90,8 +95,7 @@ def _multipart_value(value):
             raise ProviderError(
                 '默认拒绝远程图片 URL；下载到允许目录，或在信任来源时设置 GPT_IMAGE_ALLOW_REMOTE_INPUTS=1',
                 provider='images-native', code='remote_input_denied')
-        with urllib.request.urlopen(value, timeout=300) as response:
-            return response.read(), response.headers.get_content_type() or 'application/octet-stream'
+        return fetch_image(value, timeout=300)
     path = Path(value)
     if not path.is_file():
         raise ProviderError(f'图片文件不存在: {value}', provider='images-native', code='missing_image')
@@ -122,7 +126,7 @@ def _stream_request(url, api_key, payload, timeout, events_path, partial_dir, ta
                 extension = 'jpg' if output_format in ('jpg', 'jpeg') else output_format
                 path = partial_dir / f'{task_id}-partial-{index}.{extension}'
                 path.write_bytes(base64.b64decode(partial)); event['partial_image_path'] = str(path)
-            stream.write(json.dumps(event, ensure_ascii=False) + '\\n'); stream.flush()
+            stream.write(json.dumps(redact(event), ensure_ascii=False) + '\\n'); stream.flush()
             if event.get('data') or event.get('b64_json') or event.get('url'):
                 if event.get('type', '').endswith('.completed') and isinstance(event.get('data'), list):
                     final = {'data': event['data']}
@@ -220,14 +224,7 @@ class NativeImagesProvider(Provider):
         request_endpoint = endpoint
         if is_edit and request_endpoint.rstrip('/').endswith('/images/generations'):
             request_endpoint = request_endpoint.rstrip('/')[:-len('generations')] + 'edits'
-        artifact_payload = dict(payload)
-        if artifact_payload.get('image_urls'):
-            artifact_payload['image_urls'] = [
-                '[data-url-redacted]' if str(value).startswith('data:') else str(value)
-                for value in artifact_payload['image_urls']
-            ]
-        if artifact_payload.get('mask'):
-            artifact_payload['mask'] = '[data-url-redacted]' if str(artifact_payload['mask']).startswith('data:') else str(artifact_payload['mask'])
+        artifact_payload = redact(payload)
         request_path.write_text(json.dumps({**artifact_payload, 'endpoint': request_endpoint, 'mode': 'native', 'request_type': 'multipart' if is_edit else 'json'}, ensure_ascii=False, indent=2))
         if context.dry_run:
 
